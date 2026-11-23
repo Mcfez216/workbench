@@ -200,6 +200,7 @@ export const THEMES = {
   norton: { label: 'Norton Commander', retro: true, frame: 'double', cursorStyle: 'underline' },
   amber: { label: 'Amber CRT', retro: true, frame: 'double', cursorStyle: 'underline', fixedPalette: true },
   modern: { label: 'Modern (Vim-style)', retro: false, frame: 'solid', cursorStyle: 'block' },
+  calm: { label: 'Calm (low contrast)', retro: false, frame: 'solid', cursorStyle: 'block' },
 };
 
 function resolve(name, palette) {
@@ -209,6 +210,33 @@ function resolve(name, palette) {
     return { ...t, vars: MODERN, nicks: ['#7aa2f7', '#9ece6a', '#e0af68', '#bb9af7', '#f7768e', '#7dcfff', '#ff9e64', '#73daca'],
       ansi: ['#15161e', '#f7768e', '#9ece6a', '#e0af68', '#7aa2f7', '#bb9af7', '#7dcfff', '#a9b1d6', '#414868', '#f7768e', '#9ece6a', '#e0af68', '#7aa2f7', '#bb9af7', '#7dcfff', '#c0caf5'],
       selection: { bg: '#283457' } };
+  }
+  if (name === 'calm') {
+    // warm greys, muted colours, no pure black or white: easy for long sessions
+    const C = { bg: '#2a2c2f', bg2: '#25272a', bg3: '#313438', line: '#3a3d42', fg: '#cfcac0', dim: '#8f8a80', faint: '#5f6166', blue: '#8fa8c4', green: '#9fb88f', amber: '#d1b07c', rose: '#cc9a9a', violet: '#b4a2c6', teal: '#8fbcb5' };
+    const vars = { ...MODERN,
+      bg: C.bg2, fg: C.fg, muted: C.dim, accent: C.blue, link: C.teal, error: C.rose, warn: C.amber, ok: C.green, info: C.teal, desk: C.bg2,
+      'menu-bg': C.bg2, 'menu-fg': C.fg, 'menu-hot': C.blue, 'menu-sel-bg': C.line, 'menu-sel-fg': C.fg, 'menu-disabled': C.faint,
+      'panel-bg': C.bg, 'panel-fg': C.fg, 'panel-title': C.blue, 'panel-border': C.line,
+      'side-bg': C.bg2, 'side-fg': C.fg, 'side-sel-bg': C.line, 'side-sel-fg': C.fg, 'side-hover-bg': C.bg3, 'side-dir': C.blue, 'side-head': C.dim, 'side-border': C.line,
+      'tab-bg': C.bg2, 'tab-fg': C.dim, 'tab-active-bg': C.bg, 'tab-active-fg': C.fg, 'tab-border': C.blue,
+      'editor-bg': C.bg, 'editor-fg': C.fg, 'gutter-bg': C.bg, 'gutter-fg': C.faint, 'gutter-active': C.dim,
+      cursor: C.fg, selection: '#3d4450', 'active-line': '#2f3135', ruler: C.line, 'ws-bad': '#4a3434', 'match-bg': '#3f4a58', 'bracket-bg': C.line,
+      'syn-keyword': C.violet, 'syn-type': C.teal, 'syn-string': C.green, 'syn-number': C.amber, 'syn-comment': C.dim,
+      'syn-preproc': C.teal, 'syn-function': C.blue, 'syn-variable': C.fg, 'syn-operator': C.fg, 'syn-punct': C.dim, 'syn-constant': C.amber, 'syn-heading': C.blue, 'syn-link': C.teal,
+      'diff-add-fg': C.green, 'diff-add-bg': '#2d3a2d', 'diff-del-fg': C.rose, 'diff-del-bg': '#3d2d2d', 'diff-hunk-fg': C.blue, 'diff-hunk-bg': C.bg3, 'diff-meta': C.amber, 'diff-ctx': C.fg,
+      'status-bg': C.bg2, 'status-fg': C.dim, 'mode-bg': C.line, 'mode-fg': C.fg,
+      'fkey-num-bg': C.bg2, 'fkey-num-fg': C.faint, 'fkey-label-bg': C.bg2, 'fkey-label-fg': C.dim,
+      'dialog-bg': C.bg3, 'dialog-fg': C.fg, 'dialog-title': C.blue, 'bevel-light': C.line, 'bevel-dark': C.line, shadow: 'rgba(0,0,0,0.35)',
+      'button-bg': C.line, 'button-fg': C.fg, 'button-focus-bg': C.blue, 'button-focus-fg': C.bg2,
+      'input-bg': C.bg2, 'input-fg': C.fg, 'input-border': C.line, 'term-bg': C.bg2, 'term-fg': C.fg,
+      'quote-1': C.teal, 'quote-2': C.green, 'quote-3': C.amber,
+      'callout-bg': C.bg3, 'callout-fg': C.fg, 'callout-title': C.blue, 'callout-sw-bg': '#2c3533', 'callout-sw-fg': C.fg, 'callout-sw-title': C.teal,
+      'callout-warn-bg': '#3a2f2f', 'callout-warn-fg': C.fg, 'callout-warn-title': C.rose, 'code-bg': C.bg2, 'code-fg': C.fg, 'inline-code': C.teal,
+      'scroll-thumb': C.line, 'scroll-track': C.bg2 };
+    return { ...t, vars, nicks: [C.blue, C.green, C.amber, C.violet, C.rose, C.teal, C.dim, C.fg],
+      ansi: [C.bg2, C.rose, C.green, C.amber, C.blue, C.violet, C.teal, C.fg, C.faint, C.rose, C.green, C.amber, C.blue, C.violet, C.teal, '#e2ddd3'],
+      selection: { bg: '#3d4450' } };
   }
   if (name === 'amber') {
     const A = AMBER;

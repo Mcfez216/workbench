@@ -277,7 +277,7 @@ function findUp(start, name, stop) {
   }
 }
 
-async function tidy({ file }) {
+async function tidy({ file, checks: only }) {
   const cfg = config.get();
   const cmake = require('./cmake');
   const root = cmake.cmakeRoot(file);
@@ -285,7 +285,7 @@ async function tidy({ file }) {
   let inDb = false;
   if (db && fs.existsSync(db)) { try { inDb = fs.readFileSync(db, 'utf8').includes(JSON.stringify(file).slice(1, -1)); } catch (e) { /* no */ } }
   const ownConfig = findUp(path.dirname(file), '.clang-tidy', root || config.HOME);
-  const checks = cfg.tidy.checks || (ownConfig ? '' : TIDY_CHECKS);
+  const checks = only || cfg.tidy.checks || (ownConfig ? '' : TIDY_CHECKS);
   const std = isC(file) ? toolchain('c').std : (cfg.build.std || 'c++20');
   const args = ['--quiet', ...(checks ? [`--checks=${checks}`] : []), ...(inDb ? ['-p', path.dirname(db), file] : [file, '--', `-std=${std}`, ...(isC(file) ? ['-xc'] : [])])];
   const r = await execStream({ cmd: 'clang-tidy', args, cwd: root || path.dirname(file), title: `clang-tidy ${path.basename(file)}`, source: 'clang-tidy' });
@@ -393,4 +393,4 @@ function init(a) {
   a.register('dos.run', dosRun);
 }
 
-module.exports = { init, execStream, runProgram, buildSingle, debugSingle, valgrindSingle, filterAsm, which, hint, toolchain, CXX_EXT, C_EXT, SOURCE_EXT };
+module.exports = { init, tidy, execStream, runProgram, buildSingle, debugSingle, valgrindSingle, filterAsm, which, hint, toolchain, CXX_EXT, C_EXT, SOURCE_EXT };

@@ -55,6 +55,31 @@ the real palette. **Options → Retro font** swaps the VGA pixel font (sharp
 only at 16 or 32 px) for a smooth monospace font at any size, keeping the
 retro look.
 
+## Learning with it
+
+Built for learning C and C++ for development and security, and for brains
+that work best with small steps, clear structure and few surprises (ADHD,
+autism, or just tired). All built in; all optional.
+
+| Part | What it does |
+|---|---|
+| **Exercises** | Learn on the toolbar. 20 exercises in four tracks: C basics (functions, loops, arrays, strings, pointers, malloc/realloc/free, structs, input and output), C++ basics (string and vector, a first class, the standard library, algorithms and lambdas), the **security lab** (fix a buffer overflow, integer overflow, use-after-free, a format-string bug, and explain each in your own words) and **capture the flag** (four local puzzles: find a password with `strings`, pull one out with gdb, exploit an overflow, exploit integer wrap-around). Your file opens beside the steps; only the current step is open; **F7** checks it with the sanitizers on and says exactly what came back ("got 4, expected 5"). Hints one at a time; the solution only if you ask. Files live in `~/workbench-exercises`. |
+| **Progress map** | Every topic as boxes (not started, started, done) and what you did on each of the last four weeks. No streaks, nothing to lose. |
+| **Focus mode** | Ctrl+Shift+G: name the one thing, choose 10, 25 or 45 minutes (or no timer). Everything else hides, messages wait in the inbox. When time's up it asks gently; a break has a countdown and a few ideas. |
+| **Where was I?** | Your last file and line, the last build or test, the exercise and step, and the note you left ("next I'll..."): on the start screen, in Learn, and by itself when you come back after a few hours. |
+| **Comfort** | Settings → Comfort: quiet mode (messages to the inbox, ✉ on the status line, instead of pop-ups), reduced motion (no blinking cursors or animations), relaxed spacing, a reading font for guides and exercises, break reminders, and the **Calm** low-contrast theme. |
+| **Plain-words errors** | A **?** on every problem in Problems (and in exercise results) explains it the same way every time: what happened, why, what to try. Compiler, linker, AddressSanitizer, UBSan, LeakSanitizer and Valgrind messages. |
+| **Your mistakes** | Revise has a fourth deck made from the mistakes you actually make: the ones you meet most come back most. |
+| **Memory view** | Learn → Visualise memory: runs a program under gdb one line at a time and draws each function's variables as boxes, pointers as arrows (into another variable, onto the heap, or NULL), what changed since the last step highlighted. ← and → step back and forth. Works on the sandbox, exercises and your own small programs. |
+| **C vs C++** | Eight jobs written both ways side by side (strings, a growing array, struct vs class, who frees memory, errors, generic code, sorting), each opening in the sandbox. |
+| **Reference** | Ctrl+Shift+H: the C library and C++ standard library essentials built in, each with its pitfall and a security note, plus man pages in a tab. No browser, no rabbit hole. |
+| **Hardening** | Security → Hardening: which protections a program has (PIE, NX, stack canary, RELRO, FORTIFY_SOURCE), what each stops and the flag that turns it on, and the sandbox program built three ways (everything off, your compiler's defaults, hardened) side by side. |
+| **Binary inspector** | Security → Inspect a binary: overview, sections, symbols, strings and disassembly (click a function). |
+| **Fuzzing** | Security → Fuzz this file: builds an `LLVMFuzzerTestOneInput` target with clang, libFuzzer, ASan and UBSan, and runs it; a crash lands in Problems and the input that did it is kept (shown as hex, and replayable). It can write the target for the function under the cursor. Needs `libclang-rt-dev` (the setup script installs it). |
+| **Secure coding** | Security → Secure-coding check: clang-tidy's CERT rules. In the editor, `gets`, `strcpy`, `sprintf`, `system`, `rand`... are underlined with why and what to use instead. |
+| **Checkpoints** | The Checkpoint button saves everything as it is (git without the staging, noting whether the build was green); Git → Go back returns to any checkpoint after saving the present, so nothing is ever lost. |
+| **Journal and tests** | Learn → Project journal: `JOURNAL.md` with today's heading (Did, Learned, Stuck on, Next; the Next line feeds "Where was I?"). Learn → Write a test for this function: a test file for the function under the cursor, added to CMake. |
+
 ## Install
 
 **Windows:** double-click **`Install on Windows.cmd`** in the app's folder.
@@ -186,6 +211,7 @@ Put a file on one side and a guide on the other. Shift+click a note in Guides (o
 | Alt+F9 | CMake configure | Ctrl+F9 | Build and run |
 | Ctrl+Shift+D | gdb, stopped at this line | Alt+F8 / Alt+F7 | Next / previous problem |
 | F12 / Shift+F12 | Definition / references | Ctrl+Shift+O | Format the file |
+| Ctrl+Shift+G | Focus mode | F7 (in an exercise) | Check the exercise |
 | Ctrl+Shift+K | clang-tidy | Ctrl+Shift+U | cppcheck |
 | Ctrl+Shift+\| | move this tab to the other side (split) | Ctrl+Alt+Shift+\| | jump to the other side |
 | Ctrl+Shift+A | Sandbox assembly | Ctrl+Shift+H | Look it up on cppreference |
@@ -210,7 +236,11 @@ server/              the backend (Node), bound to 127.0.0.1
   cmake.js           CMake (File API for the targets), CTest, the projects, run, gdb, Valgrind
   build.js           single C/C++ files, gdb and Valgrind on them, the C and C++ sandbox and
                      its assembly, clang-tidy, cppcheck, clang-format, DOS
-  project.js         new projects (C or C++), file templates, header <-> source
+  project.js         new projects (C or C++), file templates, header <-> source, a test for a function
+  exercises.js       the exercises: build them with a test program, run, say what failed
+  exercise-data.js   the exercises themselves (and each one's solution, checked by npm test)
+  security.js        checksec, the three-way hardening build, fuzzing, the binary inspector, man
+  memviz.js          the memory view: steps a program under gdb (its MI interface) and records it
   parse.js           compiler, linker, CMake, Catch2, sanitizer and Watcom output → Problems
   cp.js              the judge
   files.js pty.js    files; shells through a small Python pty helper (no native modules)

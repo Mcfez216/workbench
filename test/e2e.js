@@ -448,9 +448,93 @@ async function main() {
       await page.keyboard.press('Control+W');
     });
 
+    await step('an exercise: F7 says what came back, fix it, the next step opens', async () => {
+      await page.locator('.toolbar-main .tb-btn', { hasText: 'Learn' }).click();
+      await page.locator('.side-view:not([hidden]) .ex-row', { hasText: 'First functions' }).click();
+      await page.waitForSelector('.tab-page[data-kind="exercise"] .ex-step.current');
+      await page.waitForSelector('.tab.active:has-text("first.c")');
+      // (the backend tests used this exercise too: start it from a wrong add, whatever they left)
+      const f = path.join(process.env.HOME, 'workbench-exercises', 'c-first-functions', 'first.c');
+      const setAdd = (body) => fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/int add\(int a, int b\) \{[\s\S]*?\n\}/, `int add(int a, int b) {\n    ${body}\n}`));
+      setAdd('return a * b;');
+      await page.keyboard.press('F7');
+      await page.waitForFunction(() => /got 6, expected 5/.test(document.querySelector('.ex-result')?.innerText || ''), null, { timeout: 30000 });
+      setAdd('return a + b;');
+      await page.keyboard.press('F7');
+      await page.waitForFunction(() => /Step 1 passes/.test(document.querySelector('.ex-result')?.innerText || ''), null, { timeout: 30000 });
+      assert.ok(await page.locator('.ex-step.current', { hasText: 'max3' }).count(), 'step 2 is open');
+      await page.locator('.tab-page[data-kind="exercise"] .btn', { hasText: 'A hint' }).click();
+      assert.ok(await page.locator('.ex-hints li').count() === 1, 'one hint at a time');
+      await shot('17-exercise');
+    });
+
+    await step('a compile error has a ? that explains it in plain words; it becomes a flashcard', async () => {
+      const f = path.join(process.env.HOME, 'workbench-exercises', 'c-first-functions', 'first.c');
+      fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('return a + b;', 'return a + c;'));
+      await page.keyboard.press('F7');
+      await page.waitForSelector('.problems .explain-toggle', { timeout: 30000 });
+      await page.locator('.problems .explain-toggle').first().click();
+      await page.waitForSelector('.problems .explain .ex-label:has-text("Try this")');
+      assert.match(await page.locator('.problems .explain .ex-title').first().innerText(), /Not declared/);
+      fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('return a + c;', 'return a + b;'));
+      await page.keyboard.press('Control+Shift+V');
+      await page.waitForSelector('.tab-page.active .card-stage');
+      await page.selectOption('.tab-page.active select', 'mistakes');
+      const label = await page.locator('.tab-page.active select option[value="mistakes"]').innerText();
+      assert.ok(+(label.match(/\((\d+)\)/) || [])[1] >= 1, label);
+      await page.waitForSelector('.tab-page.active .card-front');
+    });
+
+    await step('focus mode: one task, a timer, the editor still there; Done brings it all back', async () => {
+      await page.locator('.tab', { hasText: 'first.c' }).click();
+      await page.keyboard.press('Control+Shift+G');
+      await page.locator('.dialog #focus-task').fill('make step 2 pass');
+      await page.locator('.dialog .dlg-btn', { hasText: 'Start' }).click();
+      await page.waitForSelector('.focus-bar .fb-time');
+      assert.strictEqual(await page.locator('.sidebar').isVisible(), false);
+      assert.ok((await page.locator('.tab-page.active .cm-editor').boundingBox()).width > 400, 'the editor keeps its room');
+      await shot('18-focus');
+      await page.locator('.focus-bar .fb-btn', { hasText: 'Done' }).click();
+      await page.waitForFunction(() => !document.querySelector('.focus-bar') && document.querySelector('.sidebar').offsetWidth > 0);
+    });
+
+    await step('memory view: frames, a pointer arrow, the heap, stepping back and forth', async () => {
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('visualise memory');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.tab-page.active .viz-frame', { timeout: 60000 });
+      await page.keyboard.press('End');
+      await page.keyboard.press('ArrowLeft');
+      await page.waitForSelector('.tab-page.active .viz-arrow');
+      const n = await page.locator('.tab-page.active .viz-slider').getAttribute('max');
+      assert.ok(+n > 3);
+      await shot('19-memviz');
+      await page.keyboard.press('Control+W');
+    });
+
+    await step('security: hardening compared three ways, and the binary inspector', async () => {
+      await page.keyboard.press('F4');
+      await page.waitForSelector('.tab.active:has-text("sandbox")');
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('three ways');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.tab-page.active .sec-table', { timeout: 60000 });
+      assert.match(await page.locator('.tab-page.active .sec-table').innerText(), /Stack canary/);
+      await page.locator('.tab-page.active .btn', { hasText: 'Inspect: Everything off' }).click();
+      await page.locator('.tab-page.active .choice', { hasText: 'Symbols' }).click();
+      await page.locator('.tab-page.active .inspect-body a', { hasText: /^main$/ }).first().click();
+      await page.waitForSelector('.tab-page.active pre.disasm');
+      await shot('20-inspect');
+      await page.keyboard.press('Control+W');
+      await page.locator('.tab', { hasText: 'Hardening' }).click();
+      await page.keyboard.press('Control+W');
+    });
+
     await step('every theme applies (and saves)', async () => {
       await page.locator('.tab', { hasText: '03_square.cpp' }).first().click();
-      for (const name of ['turbo', 'norton', 'amber', 'modern', 'blue']) {
+      for (const name of ['turbo', 'norton', 'amber', 'modern', 'calm', 'blue']) {
         await page.keyboard.press('Control+Shift+Y');
         await page.waitForTimeout(250);
         const t = await page.evaluate(() => document.documentElement.dataset.theme);
@@ -473,7 +557,11 @@ async function main() {
       assert.deepStrictEqual(await titles(), before);
       assert.strictEqual(await page.locator('.tab.right .tab-label', { hasText: 'Judge' }).count(), 1, 'Judge is still on the right');
       assert.ok(await page.locator('.tabbody.split .pane.right .tab-page.active').count() === 1);
-      await page.keyboard.press('Control+Shift+|');          // back to one side for the rest
+      // back to one side for the rest (an exercise sits on the right too, so close the split itself)
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('close the split');
+      await page.keyboard.press('Enter');
       await page.waitForFunction(() => !document.querySelector('.tabbody.split'));
       // terminals live in the backend: they come back with their output
       if (!(await page.locator('.term-host').count()) || !(await page.locator('.term-host').isVisible())) await page.keyboard.press('F5');

@@ -19,7 +19,7 @@ function make(id, title, replay = '') {
   const term = new Terminal({
     fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--font'),
     fontSize: parseInt(getComputedStyle(document.documentElement).getPropertyValue('--font-size'), 10) || 16,
-    lineHeight: 1, theme: terminalTheme(), cursorStyle: theme().cursorStyle, cursorBlink: true,
+    lineHeight: 1, theme: terminalTheme(), cursorStyle: theme().cursorStyle, cursorBlink: !document.documentElement.classList.contains('reduce-motion'),
     scrollback: 5000, allowProposedApi: false, convertEol: false, customGlyphs: true,
   });
   const fit = new FitAddon();
@@ -151,3 +151,6 @@ export function initTerminal() {
   command('term.new', 'New terminal', ['Ctrl+Shift+T'], (cwd) => newTerminal(typeof cwd === 'string' ? cwd : undefined));
   command('term.close', 'Close terminal', ['Ctrl+Shift+W'], () => activeId && closeTerm(activeId));
 }
+
+// Settings → Comfort → Reduce motion: no blinking cursors in the terminals either
+window.addEventListener('cpw-comfort', (e) => { for (const t of terms.values()) t.term.options.cursorBlink = !e.detail.reduceMotion; });

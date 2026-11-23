@@ -8,6 +8,7 @@ import { h, clear, prompt, toast, dialog, debounce, pathText, choices } from './
 import { panel, tabs, command, runCommand, status, sidebar } from './layout.js';
 import { activeEditor, openFile, goTo, setFileDiagnostics, createView, languageFor, registerSandboxView, markRuntime } from './editor.js';
 import { language, otherLanguage, langInfo, onLanguageChange } from './lang.js';
+import { explain, explanationBox, remember } from './explain.js';
 import { setDiagnostics } from '@codemirror/lint';
 import { EditorView, Decoration } from '@codemirror/view';
 import { StateField, StateEffect, EditorState } from '@codemirror/state';
@@ -46,6 +47,19 @@ function renderProblems() {
       h('span', { class: 'grow' }, p.message));
     b.addEventListener('click', () => jump(i));
     const li = h('li', {}, b);
+    // ? : the same problem in plain words, underneath
+    const rule = explain(p.message);
+    if (rule) {
+      const q = h('button', { type: 'button', class: 'explain-toggle', title: 'Explain this in plain words', 'aria-expanded': 'false' }, '?');
+      q.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = li.querySelector(':scope > .explain');
+        if (open) { open.remove(); q.setAttribute('aria-expanded', 'false'); return; }
+        li.append(explanationBox(rule, { compact: true }));
+        q.setAttribute('aria-expanded', 'true');
+      });
+      b.append(q);
+    }
     if (notes.length) {
       const sub = h('ul', { class: 'problem-notes', hidden: true }, notes.map((n) => {
         const nb = h('button', { type: 'button' }, h('span', { class: 'sev-info' }, 'note   '),
@@ -113,8 +127,20 @@ function startRun(title) {
   panel.show('build');
   status.set('build', `${title}...`, { order: 30 });
 }
+// Errors and crashes in your code feed the "Your mistakes" flashcards
+function rememberMistakes(list) {
+  const seen = new Set();
+  for (const p of list) {
+    if (p.severity !== 'error' && !p.runtime) continue;
+    const rule = explain(p.message);
+    if (rule && !seen.has(rule.id)) { seen.add(rule.id); remember(rule, p.message); }
+  }
+}
+export { rememberMistakes };
+
 function finishRun(r, okText, failText) {
   problems = r.problems || [];
+  rememberMistakes(problems);
   renderProblems();
   const errs = problems.filter((p) => p.severity === 'error').length;
   const warns = problems.filter((p) => p.severity === 'warning').length;
@@ -124,6 +150,7 @@ function finishRun(r, okText, failText) {
   { order: 30, cls: ok ? 'good' : 'bad', onclick: () => panel.show(problems.length ? 'problems' : 'build') });
   if (!ok && problems.length) panel.show('problems');
   showMarks();
+  import('./comfort.js').then(({ rememberRun }) => rememberRun(status.el.querySelector('[data-key="build"]')?.textContent || '', ok));
   return ok;
 }
 
@@ -132,6 +159,7 @@ on('build.runtime', (d) => {
   const fresh = d.problems.filter((p) => !problems.some((q) => q.runtime && q.file === p.file && q.line === p.line && q.message === p.message));
   if (!fresh.length) return;
   problems = problems.concat(fresh);
+  rememberMistakes(fresh);
   renderProblems();
   showMarks();
   status.set('build', `${fresh[0].message.split(' (')[0]} at ${fresh[0].file.split('/').pop()}:${fresh[0].line}`, { order: 30, cls: 'bad', onclick: () => panel.show('problems') });
@@ -292,6 +320,7 @@ const SNIPPETS_C = {
   'Break it: pointer to a dead local (ASan)': '#include <stdio.h>\n\nstatic int *make(void) {\n    int local = 7;\n    return &local;   /* local dies when make() returns */\n}\n\nint main(void) {\n    int *p = make();\n    printf("%d\\n", *p);\n    return 0;\n}\n',
   'Break it: signed overflow (UBSan)': '#include <limits.h>\n#include <stdio.h>\n\nint main(void) {\n    int big = INT_MAX;\n    big += 1;   /* undefined: int doesn\'t wrap */\n    printf("%d\\n", big);\n    return 0;\n}\n',
   'Break it: uninitialised read (Valgrind)': '#include <stdio.h>\n#include <stdlib.h>\n\n/* ASan can\'t see this one: run it with the Valgrind button. */\nint main(void) {\n    int *a = malloc(4 * sizeof *a);\n    if (a == NULL) return 1;\n    a[0] = 1;   /* a[1] is never set */\n    if (a[1] > 0) printf("positive\\n"); else printf("not positive\\n");\n    free(a);\n    return 0;\n}\n',
+  'Fuzz me: a length-prefixed name (Security → Fuzz)': '/* A fuzz target: libFuzzer calls this with generated inputs. The first\n * byte says how long the name is... and nobody checks it against the buffer.\n * Security -> Fuzz this file finds it in seconds; then fix it and fuzz again. */\n#include <stddef.h>\n#include <stdint.h>\n#include <string.h>\n\nstruct record { char name[8]; int id; };\n\nstatic int parse(const uint8_t *data, size_t size, struct record *out) {\n    if (size < 1) return -1;\n    size_t len = data[0];\n    if (len > size - 1) len = size - 1;\n    memcpy(out->name, data + 1, len);   /* len can be up to 255 */\n    out->id = (int)size;\n    return 0;\n}\n\nint LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {\n    struct record r;\n    if (parse(data, size, &r) == 0 && r.name[0] == \'!\') return 1;\n    return 0;\n}\n',
   'Break it: a leak (LeakSanitizer)': '#include <stdio.h>\n#include <stdlib.h>\n\nint main(void) {\n    int *data = malloc(100 * sizeof *data);\n    if (data == NULL) return 1;\n    data[0] = 1;\n    printf("%d\\n", data[0]);\n    return 0;   /* no free: reported when the program ends */\n}\n',
 };
 const snippetsFor = (lang) => (lang === 'c' ? SNIPPETS_C : SNIPPETS);
@@ -331,7 +360,11 @@ function openSandbox(snippetName) {
       this.asmBtn = asmBtn;
       this.fileLabel = h('span', { class: 'sb-file' });
       this.langSwitch = langSwitch();
-      el.append(h('div', { class: 'toolbar' }, this.fileLabel, this.langSwitch, this.pick, this.compiler, this.std, runBtn, vgBtn, asmBtn, this.opt,
+      const memBtn = h('button', { class: 'btn', type: 'button', title: 'Step through it and see the variables, pointers and heap as boxes and arrows' }, 'Memory');
+      memBtn.addEventListener('click', () => runCommand('memviz.open'));
+      const fuzzBtn = h('button', { class: 'btn', type: 'button', title: 'Fuzz it with libFuzzer (needs LLVMFuzzerTestOneInput: see the "Fuzz me" example)' }, 'Fuzz');
+      fuzzBtn.addEventListener('click', () => runCommand('security.fuzz'));
+      el.append(h('div', { class: 'toolbar' }, this.fileLabel, this.langSwitch, this.pick, this.compiler, this.std, runBtn, vgBtn, memBtn, fuzzBtn, asmBtn, this.opt,
         h('span', { class: 'muted small grow flags', title: 'Compiled with these flags (Settings → Sandbox flags)' }, '-Wall -Wextra -g -fsanitize=address,undefined')));
       this.host = h('div', { class: 'editor-host' });
       this.asmHost = h('div', { class: 'editor-host asm-host', hidden: true });

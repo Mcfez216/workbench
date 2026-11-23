@@ -39,7 +39,7 @@ function broadcast(ev, d) {
 const api = { register, broadcast, config, onExit: [] };
 
 function loadModules() {
-  for (const m of ['files', 'pty', 'build', 'cmake', 'cp', 'git', 'guides', 'irc', 'mail', 'lsp', 'state', 'project']) {
+  for (const m of ['files', 'pty', 'build', 'cmake', 'cp', 'git', 'guides', 'irc', 'mail', 'lsp', 'state', 'project', 'exercises', 'security', 'memviz']) {
     require('./' + m).init(api);
   }
   register('config.get', async () => config.get());

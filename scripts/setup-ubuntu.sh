@@ -46,6 +46,7 @@ packages=(
 	g++ gcc make cmake ninja-build gdb binutils
 	clang clangd clang-tidy clang-format	# clangd: completion and errors as you type
 	cppcheck valgrind git ripgrep python3
+	libclang-rt-dev				# clang's fuzzing (libFuzzer) and sanitizer libraries
 
 	# --- the app itself: passwords in a keyring, the bin, man pages, links ---
 	libsecret-tools gnome-keyring dbus-x11	# secret-tool and a keyring to keep the passwords in

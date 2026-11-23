@@ -8,22 +8,26 @@ import { desk, tabs, command, runCommand, commands } from './layout.js';
 import { openFile } from './editor.js';
 import { langSwitch } from './build.js';
 import { language, langInfo, toolchainLabel, onLanguageChange } from './lang.js';
+import { whereWasI, whereBox } from './comfort.js';
 
 const ACTIONS = [
   ['project.new', 'New project', 'A CMake project in C or C++, with tests if you like'],
   ['file.new', 'New file', 'A program, a source file, a header or a class'],
   ['file.quickOpen', 'Open a file', 'From the folders in Files'],
   ['file.openFolder', 'Open a folder', 'Make it the workspace'],
+  ['learn.show', 'Exercises', 'Small steps with tests: C, C++, the security lab, capture the flag'],
   ['sandbox.open', 'Sandbox', 'Try something out: one scratch file, sanitizers on'],
+  ['focus.toggle', 'Focus', 'One task, a timer, nothing else on screen'],
   ['guides.show', 'Guides', 'Your vaults of notes'],
   ['app.palette', 'All commands', 'Everything the menus have, by name'],
 ];
 
 async function renderStart(el) {
-  const [files, folders, vaults] = await Promise.all([
+  const [files, folders, vaults, where] = await Promise.all([
     call('state.get', { key: 'recent.files', fallback: [] }),
     call('state.get', { key: 'recent.folders', fallback: [] }),
     call('guides.list').then((r) => r.vaults || [], () => []),
+    whereWasI(),
   ]);
   const l = language();
   const keyOf = (id) => (commands.get(id) && commands.get(id).keys[0]) || '';
@@ -37,6 +41,7 @@ async function renderStart(el) {
     h('div', { class: 'start-head' },
       h('h1', {}, 'C / C++ Workbench'),
       h('div', { class: 'start-lang' }, h('span', { class: 'muted' }, 'Working in'), langSwitch(), h('span', { class: 'muted' }, toolchainLabel(l)), h('span', { class: 'kbd' }, 'Ctrl+Shift+J'))),
+    (where.file || where.ex || where.next) ? h('section', { class: 'start-col start-where' }, h('h2', {}, 'Where you were'), whereBox(where)) : null,
     h('div', { class: 'start-cols' },
       h('section', { class: 'start-col' }, h('h2', {}, 'Start'), ACTIONS.map(action)),
       h('section', { class: 'start-col' },

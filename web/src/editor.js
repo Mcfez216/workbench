@@ -32,6 +32,7 @@ import { h, toast, dialog, pathText } from './ui.js';
 import { tabs, command, runCommand, status, setEditorKeymap } from './layout.js';
 import { editorHighlight } from './highlight.js';
 import { fileLanguage } from './lang.js';
+import { bannedFunctions } from './banned.js';
 
 let cfg = null;
 export function setConfig(c) {
@@ -379,6 +380,7 @@ export function createView({ parent, doc, file, lang, onChange, extra = [] }) {
         highlightSelectionMatches(), lintGutter(),
         keymapCompartment.of(keymapFor(cfg ? cfg.keymap : 'standard')),
         lang.ext, codeStyle(lang), runtimeField, snippetsFor(lang),
+        lang.code && !(cfg && cfg.editor && cfg.editor.banned === false) ? bannedFunctions : [],
         wrapCompartment.of(cfg && cfg.editor && cfg.editor.wrap ? EditorView.lineWrapping : []),
         EditorView.updateListener.of((u) => {
           if (u.docChanged && onChange) onChange(u);

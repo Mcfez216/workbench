@@ -78,6 +78,20 @@ function collect(state) {
   return out;
 }
 
+// The function the cursor is in: its name and its signature (the text up to {)
+export function functionAt(view) {
+  const pos = view.state.selection.main.head;
+  for (let n = syntaxTree(view.state).resolveInner(pos, -1); n; n = n.parent) {
+    if (n.name !== 'FunctionDefinition') continue;
+    const f = functionName(view.state, n);
+    if (!f) return null;
+    const body = child(n, 'CompoundStatement');
+    const signature = view.state.sliceDoc(n.from, body ? body.from : n.to).replace(/\s+/g, ' ').trim();
+    return { name: f.name, signature };
+  }
+  return null;
+}
+
 function activeFileTab() { const t = tabs.active(); return t && t.view && t.lang && t.lang.code ? t : null; }
 
 function render() {

@@ -43,7 +43,18 @@ function defaults() {
     folders: [],                 // more folders shown in Files next to the workspace
     vault: null,                 // old single-vault setting; kept in step with vaults[0]
     vaults: [],                  // [{ path, name }]: every notes vault shown in Guides
-    editor: { autosave: false, wrap: false, snippets: true },
+    editor: { autosave: false, wrap: false, snippets: true, banned: true },   // banned: underline gets, strcpy... in C and C++
+    exercisesDir: '~/workbench-exercises',
+    // comfort: calmer for ADHD / autistic brains (and everyone else)
+    comfort: {
+      reduceMotion: false,     // no blinking cursors, animations or smooth scrolling
+      quiet: false,            // messages wait in the inbox instead of popping up (errors still show)
+      readingFont: 'mono',     // mono | readable (Atkinson Hyperlegible, Lexend, OpenDyslexic... if installed)
+      spacing: 'normal',       // normal | relaxed (more space between lines and letters in guides and pages)
+      breakReminder: 0,        // minutes of work before a gentle "take a break?" (0: never)
+      whereOnStart: true,      // "Where was I?" when you come back after a while
+    },
+    focus: { minutes: 25, breakMinutes: 5 },
     build: {
       buildType: 'Debug',        // Debug has ASan + UBSan on (the vault's CMakeLists.txt)
       jobs: Math.max(1, os.cpus().length),

@@ -234,7 +234,72 @@ async function counterpart({ file }) {
   return { file: await walk(root, 0) };
 }
 
+// ------------------------------------------------------------------ a test for a function
+// tests/test_<func>.c(pp) with the same tiny CHECK the exercises use, and,
+// in a CMake project that has enable_testing(), the lines that build and
+// register it (linked with the project's first library, or the file itself).
+async function testFor({ file, func, signature = '' }) {
+  const f = abs(file);
+  const fn = String(func || '').replace(/[^\w]/g, '');
+  if (!fn) throw new Error('Put the cursor inside the function to test');
+  const c = /\.(c|h)$/.test(f) && !/\.(cpp|cc|cxx|hpp)$/.test(f) ? true : false;
+  const ext = c ? 'c' : 'cpp';
+  const root = require('./cmake').cmakeRoot(f) || path.dirname(f);
+  const dir = path.join(root, 'tests');
+  const out = path.join(dir, `test_${fn}.${ext}`);
+  if (fs.existsSync(out)) return { file: out, existed: true };
+  // the header that goes with it: next to it, or in include/ (the same search as Alt+F12)
+  const header = /\.(h|hpp|hh)$/.test(f) ? f : (await counterpart({ file: f })).file;
+  const decl = header ? `#include "${path.relative(dir, header)}"` : `/* the function under test (or #include its header) */\n${signature ? signature.replace(/\s*\{?\s*$/, '') + ';' : `/* declare ${fn} here */`}`;
+  const text = c ? `/* Tests for ${fn}. Each CHECK that fails says where; the program exits 1,
+ * which is what CTest counts as a failure. */
+#include <stdio.h>
+
+${decl}
+
+static int failures = 0;
+#define CHECK(expr) do { if (!(expr)) { ++failures; printf("%s:%d: FAILED: CHECK( %s )\\n", __FILE__, __LINE__, #expr); } } while (0)
+
+int main(void) {
+    /* one CHECK per thing ${fn} should do: the normal case, the edges (0, empty, negative, the biggest) */
+    CHECK(1 == 1);   /* TODO: CHECK(${fn}(...) == ...); */
+    if (failures == 0) printf("All tests passed\\n");
+    return failures ? 1 : 0;
+}
+` : `// Tests for ${fn}. Each CHECK that fails says where; the program exits 1,
+// which is what CTest counts as a failure.
+#include <iostream>
+
+${decl}
+
+static int failures = 0;
+#define CHECK(expr) do { if (!(expr)) { ++failures; std::cout << __FILE__ << ':' << __LINE__ << ": FAILED: CHECK( " #expr " )\\n"; } } while (0)
+
+int main() {
+    // one CHECK per thing ${fn} should do: the normal case, the edges (0, empty, negative, the biggest)
+    CHECK(1 == 1);   // TODO: CHECK(${fn}(...) == ...);
+    if (failures == 0) std::cout << "All tests passed\\n";
+    return failures ? 1 : 0;
+}
+`;
+  await fsp.mkdir(dir, { recursive: true });
+  await fsp.writeFile(out, text);
+  let cmake = null;
+  const cm = path.join(root, 'CMakeLists.txt');
+  if (fs.existsSync(cm)) {
+    const src = fs.readFileSync(cm, 'utf8');
+    const lib = (src.match(/add_library\(\s*([\w-]+)/) || [])[1];
+    const name = `test_${fn}`;
+    if (!new RegExp(`add_executable\\(\\s*${name}\\b`).test(src)) {
+      cmake = `\n# ${name}: made by the workbench\n${/enable_testing\(\)/.test(src) ? '' : 'enable_testing()\n'}add_executable(${name} tests/${name}.${ext}${lib ? '' : ` ${path.relative(root, f)}`})\n${lib ? `target_link_libraries(${name} PRIVATE ${lib})\n` : ''}add_test(NAME ${name} COMMAND ${name})\n`;
+      fs.appendFileSync(cm, cmake);
+    }
+  }
+  return { file: out, existed: false, cmake };
+}
+
 function init(api) {
+  api.register('project.testFor', testFor);
   api.register('project.create', createProject);
   api.register('project.newFile', newFile);
   api.register('project.newPair', newPair);

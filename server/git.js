@@ -133,7 +133,60 @@ async function am({ cwd, mbox }) {
 
 async function init_({ cwd }) { await git(cwd, ['init']); return true; }
 
+// ------------------------------------------------------------------ checkpoints
+// Git made gentle: "save a checkpoint" commits everything as it is now (no
+// staging to think about), noting whether the last build or test run was
+// green; "go back" puts the files back as they were at a checkpoint, after
+// saving the present as one more checkpoint, so nothing is ever lost.
+async function who(cwd) {
+  const n = (await git(cwd, ['config', 'user.name'], { allowFail: true })).out.trim();
+  const e = (await git(cwd, ['config', 'user.email'], { allowFail: true })).out.trim();
+  const u = os.userInfo().username || 'you';
+  return [...(n ? [] : ['-c', `user.name=${u}`]), ...(e ? [] : ['-c', `user.email=${u}@localhost`])];
+}
+async function checkpoint({ cwd, note = '', status = 'unknown', init: makeRepo = false }) {
+  let r = await root({ cwd });
+  if (!r.root) {
+    if (!makeRepo) return { needRepo: true };
+    await git(cwd, ['init', '-q']);
+    r = await root({ cwd });
+  }
+  const top = r.root;
+  await git(top, ['add', '-A']);
+  const diff = await git(top, ['diff', '--cached', '--name-only'], { allowFail: true });
+  const files = diff.out.split('\n').filter(Boolean);
+  const head = await git(top, ['rev-parse', '--verify', '-q', 'HEAD'], { allowFail: true });
+  if (!files.length && head.code === 0) return { nothing: true, root: top };
+  const when = new Date().toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const what = note.trim() || (files.length === 1 ? `changed ${path.basename(files[0])}` : `${files.length} files`);
+  const msg = `Checkpoint: ${what}\n\n${when}${status === 'green' ? ', builds and tests passing' : status === 'red' ? ', something failing' : ''}\n\nWorkbench-Checkpoint: ${status}\n`;
+  await git(top, [...(await who(top)), 'commit', '-q', '--allow-empty', '-F', '-'], { input: msg });
+  const hash = (await git(top, ['rev-parse', '--short', 'HEAD'])).out.trim();
+  return { root: top, hash, files: files.length };
+}
+async function checkpoints({ cwd, limit = 40 }) {
+  const r = await root({ cwd });
+  if (!r.root) return { root: null, list: [] };
+  const out = await git(r.root, ['log', `-n${limit}`, '--format=%h%x1f%ct%x1f%s%x1f%(trailers:key=Workbench-Checkpoint,valueonly,separator=)%x1e'], { allowFail: true });
+  const list = out.out.split('\x1e').map((x) => x.trim()).filter(Boolean).map((rec) => {
+    const [hash, t, subject, cp] = rec.split('\x1f');
+    return { hash, time: +t * 1000, subject, checkpoint: !!(cp || '').trim(), status: (cp || '').trim() || null };
+  });
+  return { root: r.root, list };
+}
+async function goBack({ cwd, hash }) {
+  if (!/^[0-9a-f]{4,40}$/.test(String(hash))) throw new Error('Not a checkpoint');
+  const saved = await checkpoint({ cwd, note: `before going back to ${hash}` });
+  const r = await root({ cwd });
+  await git(r.root, ['restore', `--source=${hash}`, '--staged', '--worktree', '--', '.']);
+  const after = await checkpoint({ cwd, note: `went back to ${hash}` });
+  return { root: r.root, saved: saved.hash || null, now: after.hash || null };
+}
+
 function init(api) {
+  api.register('git.checkpoint', checkpoint);
+  api.register('git.checkpoints', checkpoints);
+  api.register('git.goBack', goBack);
   api.register('git.root', root);
   api.register('git.status', status);
   api.register('git.diff', diff);

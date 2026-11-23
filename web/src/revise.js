@@ -11,7 +11,7 @@ import { openGuide } from './guides.js';
 
 const DAYS = [0, 1, 3, 7, 16, 35];     // box -> days until it comes back
 const DAY = 86400000;
-const DECKS = { questions: 'Check-yourself questions', why: 'Why this matters', reference: 'Cheat-sheet tables' };
+const DECKS = { questions: 'Check-yourself questions', why: 'Why this matters', reference: 'Cheat-sheet tables', mistakes: 'Your mistakes' };
 
 function cardId(deck, c) {
   let x = 0;
@@ -26,8 +26,10 @@ async function openRevise() {
       const page = h('div', { class: 'page revise' });
       el.append(page);
       let data, boxes;
-      try { [data, boxes] = await Promise.all([call('guides.cards'), call('state.get', { key: 'revise.boxes', fallback: {} })]); }
-      catch (err) { page.append(h('p', {}, err.message)); return; }
+      // the vaults' decks (if there are vaults), plus one made from your own mistakes
+      const { mistakeCards } = await import('./explain.js');
+      [data, boxes] = await Promise.all([call('guides.cards').catch(() => ({ questions: [], why: [], reference: [], vaults: [] })), call('state.get', { key: 'revise.boxes', fallback: {} })]);
+      data.mistakes = await mistakeCards();
       const opts = await call('state.get', { key: 'revise.opts', fallback: { deck: 'questions', phase: 'all', vault: 'all' } });
       if (!DECKS[opts.deck]) opts.deck = 'questions';
       const deckSel = h('select', { class: 'field', 'aria-label': 'Deck' }, Object.entries(DECKS).map(([k, v]) => h('option', { value: k, selected: k === opts.deck }, `${v} (${data[k].length})`)));
@@ -60,6 +62,7 @@ async function openRevise() {
         shown = false;
         clear(stage);
         if (!card) {
+          if (deckSel.value === 'mistakes' && !data.mistakes.length) { stage.append(h('div', { class: 'card done' }, h('h2', {}, 'No mistakes yet.'), h('p', {}, 'When the compiler or a sanitizer catches something in your code, a card about it lands here, so the ones you meet most come back most.'))); return; }
           stage.append(h('div', { class: 'card done' }, h('h2', {}, 'Nothing due.'), h('p', {}, 'Every card in this deck is scheduled for later. Pick another deck or phase, or come back tomorrow.'),
             h('p', { class: 'muted' }, '"Do. Or do not. There is no try." You did. The 60 tests would be proud.')));
           return;

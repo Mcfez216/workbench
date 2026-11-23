@@ -652,6 +652,148 @@ async function test(name, fn) {
     }
   });
 
+  await test('exercises: every starter fails step 1, every solution passes them all; the CTF flags are reachable', async () => {
+    const { execFileSync } = require('child_process');
+    const list = await call('exercises.list');
+    assert.ok(list.length >= 20);
+    for (const it of list) {
+      const o = await call('exercises.open', { id: it.id });
+      const data = require('../server/exercise-data').find((e) => e.id === it.id);
+      if (it.kind === 'ctf') {
+        const run = (input) => execFileSync(o.binary, [], { input, cwd: o.dir, encoding: 'utf8' });
+        let out;
+        if (it.id === 'ctf-strings') {
+          const pw = execFileSync('strings', [o.binary], { encoding: 'utf8' }).split('\n').find((l) => /^hunter/.test(l));
+          out = run(pw + '\n');
+        } else if (it.id === 'ctf-xor') out = run('open_sesame\n');
+        else if (it.id === 'ctf-overflow') out = run('A'.repeat(16) + 'B\n');
+        else out = run('2147484\n');
+        const flag = (out.match(/FLAG\{[^}]+\}/) || [])[0];
+        assert.ok(flag, `${it.id}: the intended way gives a flag (${out})`);
+        assert.strictEqual((await call('exercises.flag', { id: it.id, flag: 'FLAG{nope}' })).ok, false);
+        assert.strictEqual((await call('exercises.flag', { id: it.id, flag })).ok, true, it.id);
+        continue;
+      }
+      const first = await call('exercises.check', { id: it.id });
+      assert.ok(first.compiled, `${it.id}: the starter compiles ${JSON.stringify(first.problems.filter((p) => p.severity === 'error'))}`);
+      assert.strictEqual(first.advanced, false, `${it.id}: the starter doesn't pass step 1`);
+      for (let guard = 0; guard < 10; guard++) {
+        const pr = (await call('exercises.list')).find((x) => x.id === it.id);
+        if (pr.done) break;
+        const step = data.steps[pr.step];
+        if (step.type === 'reflect') {
+          const r = await call('exercises.reflect', { id: it.id, step: pr.step, text: 'In my own words: it writes past the end.' });
+          assert.ok(r.answer);
+          continue;
+        }
+        fs.writeFileSync(o.file, (data.solutions && data.solutions[pr.step]) || data.solution);
+        const r = await call('exercises.check', { id: it.id });
+        assert.ok(r.advanced, `${it.id} step ${pr.step + 1}: ${JSON.stringify(r.results)} ${JSON.stringify(r.problems.filter((p) => p.severity === 'error'))}`);
+      }
+      assert.ok((await call('exercises.list')).find((x) => x.id === it.id).done, `${it.id} done`);
+    }
+    // a failure says what was expected
+    const o = await call('exercises.open', { id: 'c-first-functions' });
+    await call('exercises.reset', { id: 'c-first-functions' });
+    fs.writeFileSync(o.file, fs.readFileSync(o.file, 'utf8').replace('/* TODO step 1 */\n    return 0;', 'return a - b;'));
+    const bad = await call('exercises.check', { id: 'c-first-functions' });
+    assert.match(bad.results[0].fails[0].detail, /got -1, expected 5/);
+    // a memory bug fails the step even when the answer looks right
+    const m = await call('exercises.open', { id: 'c-memory' });
+    await call('exercises.reset', { id: 'c-memory' });
+    fs.writeFileSync(m.file, '#include <stdlib.h>\n#include <string.h>\nint *make_range(int n) { if (n <= 0) return NULL; int *a = malloc(n * sizeof *a); for (int i = 0; i <= n; ++i) a[i] = i; return a; }\nchar *dup_string(const char *s) { return NULL; }\nint *grow(int *a, size_t o, size_t n) { return a; }\n');
+    const oob = await call('exercises.check', { id: 'c-memory' });
+    assert.strictEqual(oob.results[0].passed, false);
+    assert.match(oob.results[0].fails.map((f) => f.detail).join(' '), /heap-buffer-overflow/);
+    assert.ok(oob.problems.some((p) => p.runtime && p.file === m.file && p.line === 3), 'the sanitizer points at your line');
+    const sum = await call('progress.summary');
+    assert.ok(sum.totals.done >= 18 && sum.days[Object.keys(sum.days)[0]].steps > 0);
+  });
+
+  await test('security: hardening three ways, checksec, and a look inside the binary', async () => {
+    const src = '#include <stdio.h>\n#include <string.h>\nint main(int argc, char **argv) { char b[16]; if (argc > 1) strcpy(b, argv[1]); printf("%s\\n", b); return 0; }\n';
+    const r = await call('security.compare', { source: src, lang: 'c' });
+    const [off, def, hard] = r.variants;
+    assert.ok(off.ok && def.ok && hard.ok, JSON.stringify(r.variants.map((v) => v.error)));
+    const st = (v, id) => v.checks.find((c) => c.id === id);
+    assert.deepStrictEqual(['pie', 'nx', 'canary', 'relro'].map((id) => st(off, id).on), [false, false, false, false], 'everything off is off');
+    assert.deepStrictEqual(['pie', 'nx', 'canary', 'relro', 'fortify'].map((id) => st(hard, id).on), [true, true, true, true, true], 'hardened is hardened');
+    assert.strictEqual(st(hard, 'relro').state, 'full');
+    const syms = await call('security.inspect', { exe: def.exe, what: 'symbols' });
+    assert.ok(syms.rows.some((x) => x.pretty === 'main' && x.kind === 'code'));
+    const dis = await call('security.inspect', { exe: def.exe, what: 'disasm', symbol: 'main' });
+    assert.match(dis.text, /<main>:/);
+    assert.ok((await call('security.inspect', { exe: def.exe, what: 'strings' })).rows.some((x) => /GLIBC|libc\.so/.test(x.text)));
+    assert.ok((await call('security.inspect', { exe: def.exe, what: 'sections' })).rows.some((x) => x.name === '.text' && /X/.test(x.flags)));
+    await assert.rejects(call('security.checksec', { exe: path.join(PROJ, 'CMakeLists.txt') }), /isn't a Linux program/);
+  });
+
+  const fuzzOk = fs.existsSync('/usr/lib/llvm-18/lib/clang/18/lib/linux/libclang_rt.fuzzer-x86_64.a') || process.env.CPW_FUZZ;
+  if (fuzzOk) {
+    await test('security: libFuzzer finds the overflow, it lands in Problems, and the input is kept', async () => {
+      const got = waitFor('build.runtime', (d) => d.problems.some((x) => /stack-buffer-overflow/.test(x.message)), 60000);
+      const src = '#include <stddef.h>\n#include <stdint.h>\n#include <string.h>\nint LLVMFuzzerTestOneInput(const uint8_t *d, size_t n) {\n    char name[8];\n    if (n < 1) return 0;\n    size_t len = d[0];\n    if (len > n - 1) len = n - 1;\n    memcpy(name, d + 1, len);\n    return name[0] == 0;\n}\n';
+      const r = await call('security.fuzz', { source: src, lang: 'c', seconds: 20 });
+      assert.ok(r.ok, JSON.stringify(r.problems));
+      const d = await got;
+      assert.strictEqual(d.problems.find((x) => /stack-buffer-overflow/.test(x.message)).line, 9);
+      await until(() => false, 1500);
+      const cr = await call('security.crashes', { source: '', lang: 'c' });
+      assert.ok(cr.crashes.length >= 1 && /^0000 {2}/.test(cr.crashes[0].hex));
+      await call('pty.close', { id: r.terminal.id });
+    });
+  }
+
+  await test('memory view: the stack, a pointer into an array, the heap, NULL, and what was printed', async () => {
+    const r = await call('memviz.trace', { lang: 'c', source: '#include <stdio.h>\n#include <stdlib.h>\n\nstatic void bump(int *x) {\n    *x += 1;\n}\n\nint main(void) {\n    int a[3] = {1, 2, 3};\n    int *p = &a[1];\n    int *h = malloc(sizeof *h);\n    *h = 42;\n    int *none = NULL;\n    bump(p);\n    printf("%d\\n", a[1]);\n    free(h);\n    return 0;\n}\n' });
+    assert.ok(r.compiled);
+    assert.match(r.end, /exited with code 0|finished/);
+    const at = (line) => r.steps.find((s) => s.line === line);
+    const v = (s, f, n) => s.frames.find((x) => x.func === f).vars.find((x) => x.name === n);
+    const s14 = at(14);
+    assert.deepStrictEqual(v(s14, 'main', 'p').target, { kind: 'var', level: 0, name: 'a', offset: 4 }, 'p points 4 bytes into a');
+    assert.strictEqual(v(s14, 'main', 'h').target.kind, 'heap');
+    assert.ok(s14.heap.some((b) => b.value === '42'));
+    assert.ok(v(s14, 'main', 'none').isNull);
+    const inBump = at(5);
+    assert.deepStrictEqual(inBump.frames.map((f) => f.func), ['bump', 'main'], 'a call is a new frame on top');
+    assert.strictEqual(v(inBump, 'bump', 'x').target.name, 'a');
+    assert.strictEqual(at(16).stdout, '3\n');
+    const cpp = await call('memviz.trace', { lang: 'cpp', source: '#include <vector>\nint main() {\n    std::vector<int> v{1, 2};\n    v.push_back(3);\n    return 0;\n}\n' });
+    assert.ok(cpp.steps.some((s) => s.frames[0] && s.frames[0].vars.some((x) => /length 3/.test(x.value))), 'gdb shows the vector');
+    const bad = await call('memviz.trace', { lang: 'c', source: 'int main(void) { return nope; }\n' });
+    assert.strictEqual(bad.compiled, false);
+  });
+
+  await test('checkpoints: save, change, go back, and the present was kept', async () => {
+    const dir = path.join(HOME, 'cp-demo');
+    fs.mkdirSync(dir, { recursive: true });
+    const f = path.join(dir, 'a.c');
+    fs.writeFileSync(f, 'int one(void) { return 1; }\n');
+    assert.ok((await call('git.checkpoint', { cwd: dir, note: 'first' })).needRepo, 'asks before making a repository');
+    const c1 = await call('git.checkpoint', { cwd: dir, note: 'works', status: 'green', init: true });
+    assert.ok(c1.hash);
+    assert.ok((await call('git.checkpoint', { cwd: dir })).nothing);
+    fs.writeFileSync(f, 'int one(void) { return 2; }   /* broke it */\n');
+    fs.writeFileSync(path.join(dir, 'new.c'), 'int extra;\n');
+    const back = await call('git.goBack', { cwd: dir, hash: c1.hash });
+    assert.strictEqual(fs.readFileSync(f, 'utf8'), 'int one(void) { return 1; }\n');
+    assert.ok(!fs.existsSync(path.join(dir, 'new.c')), 'files made later are gone too');
+    const list = await call('git.checkpoints', { cwd: dir });
+    assert.ok(list.list.some((x) => x.status === 'green' && /works/.test(x.subject)));
+    assert.ok(list.list.some((x) => /before going back/.test(x.subject)) && back.saved, 'the broken version is a checkpoint too');
+    const t = await call('project.testFor', { file: path.join(HOME, 'projects', 'ring_buffer', 'src', 'ring_buffer.c'), func: 'ring_buffer_add', signature: 'int ring_buffer_add(int a, int b)' });
+    assert.match(fs.readFileSync(t.file, 'utf8'), /#include "..\/include\/ring_buffer.h"/);
+    assert.match(t.cmake, /add_test\(NAME test_ring_buffer_add/);
+    const b = await call('build.build', { file: t.file });
+    assert.strictEqual(b.code, 0, 'the project still builds with the new test');
+  });
+
+  await test('man pages come back as text, or say why not', async () => {
+    try { const m = await call('man.page', { page: 'gcc' }); assert.match(m.text, /gcc/i); }
+    catch (e) { assert.match(e.message, /minimal Ubuntu|No manual page|not installed/); }
+  });
+
   await test('state: remembers values', async () => {
     await call('state.set', { key: 'test.x', value: { a: 1 } });
     assert.deepStrictEqual(await call('state.get', { key: 'test.x' }), { a: 1 });

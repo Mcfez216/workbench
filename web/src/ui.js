@@ -84,8 +84,24 @@ export function message(title, text) {
   return dialog({ title, body: h('pre', { class: 'dialog-pre' }, text) });
 }
 
+// Quiet mode (Settings → Comfort, and during focus): messages wait in the
+// inbox (the ✉ on the status line) instead of popping up. Errors still show.
 let toastBox = null;
+let quietReasons = new Set();
+const inbox = [];
+const inboxWatchers = new Set();
+export function setQuiet(reason, on) { if (on) quietReasons.add(reason); else quietReasons.delete(reason); for (const fn of inboxWatchers) fn(inbox); }
+export function isQuiet() { return quietReasons.size > 0; }
+export function inboxMessages() { return inbox; }
+export function clearInbox() { inbox.length = 0; for (const fn of inboxWatchers) fn(inbox); }
+export function onInbox(fn) { inboxWatchers.add(fn); return () => inboxWatchers.delete(fn); }
 export function toast(text, kind = 'info', ms = 3500) {
+  if (quietReasons.size && kind !== 'error') {
+    inbox.unshift({ text: String(text), kind, at: Date.now() });
+    inbox.length = Math.min(inbox.length, 50);
+    for (const fn of inboxWatchers) fn(inbox);
+    return;
+  }
   if (!toastBox) { toastBox = h('div', { class: 'toasts', 'aria-live': 'polite' }); document.body.append(toastBox); }
   const t = h('div', { class: `toast ${kind}` }, text);
   toastBox.append(t);

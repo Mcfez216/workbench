@@ -10,6 +10,14 @@ import { initPalette } from './palette.js';
 import { initNewStuff } from './newstuff.js';
 import { initOutline } from './outline.js';
 import { initStart } from './start.js';
+import { initExercises } from './exercises.js';
+import { initComfort, applyComfort } from './comfort.js';
+import { initProgress } from './progress.js';
+import { initMemviz } from './memviz.js';
+import { initCompare } from './compare.js';
+import { initReference } from './reference.js';
+import { initSecurity } from './security.js';
+import { initHabits } from './habits.js';
 import { setConfig, setKeymap, initEditorCommands, openFile } from './editor.js';
 import { initFiles, setRoot, setFolders } from './files.js';
 import { initTerminal, newTerminal } from './terminal.js';
@@ -54,11 +62,24 @@ const MENUS = [
     { cmd: 'test.all' }, { cmd: 'test.here' }, { cmd: 'test.project' }, { cmd: 'test.show' }, { sep: true },
     { cmd: 'judge.open' }, { cmd: 'judge.new' },
   ] },
+  { label: 'Learn', hot: 'L', items: [
+    { cmd: 'learn.show', label: 'Exercises' }, { cmd: 'exercise.check' }, { cmd: 'learn.progress' }, { sep: true },
+    { cmd: 'focus.toggle' }, { cmd: 'focus.break' }, { cmd: 'help.where' }, { sep: true },
+    { cmd: 'memviz.open' }, { cmd: 'learn.compare' }, { cmd: 'help.reference' }, { cmd: 'revise.open' }, { sep: true },
+    { cmd: 'journal.open' }, { cmd: 'test.forFunction' },
+  ] },
+  { label: 'Security', hot: 'c', items: [
+    { cmd: 'learn.show', label: 'Security lab and capture the flag (in Exercises)' }, { sep: true },
+    { cmd: 'security.hardening' }, { cmd: 'security.compare' }, { cmd: 'security.inspect' }, { sep: true },
+    { cmd: 'security.fuzz' }, { cmd: 'security.crashes' }, { cmd: 'security.fuzzSeconds' }, { sep: true },
+    { cmd: 'security.cert' }, { cmd: 'analyze.tidy' }, { cmd: 'analyze.cppcheck' }, { cmd: 'security.banned' }, { sep: true },
+    { cmd: 'build.valgrind' }, { cmd: 'sandbox.valgrind' },
+  ] },
   { label: 'Git', hot: 'G', items: [
-    { cmd: 'git.show', label: 'Status' }, { cmd: 'git.commit' }, { cmd: 'git.log' }, { cmd: 'git.formatPatch' }, { cmd: 'git.refresh' },
+    { cmd: 'git.checkpoint' }, { cmd: 'git.goBack' }, { sep: true }, { cmd: 'git.show', label: 'Status' }, { cmd: 'git.commit' }, { cmd: 'git.log' }, { cmd: 'git.formatPatch' }, { cmd: 'git.refresh' },
   ] },
   { label: 'Tools', hot: 'T', items: [
-    { cmd: 'sandbox.open' }, { cmd: 'sandbox.asm' }, { cmd: 'sandbox.valgrind' }, { sep: true },
+    { cmd: 'sandbox.open' }, { cmd: 'sandbox.asm' }, { cmd: 'sandbox.valgrind' }, { cmd: 'memviz.open' }, { sep: true },
     { cmd: 'term.toggle' }, { cmd: 'term.new' }, { cmd: 'term.close' }, { sep: true },
     { label: 'DOS retro track', submenu: [{ cmd: 'dos.build' }, { cmd: 'dos.run' }, { cmd: 'guides.open', args: ['0.4 DOSBox-X and Open Watcom - The DOS Retro Track'], label: 'Note 0.4: DOSBox-X and Open Watcom' }] },
     { sep: true },
@@ -90,7 +111,7 @@ const MENUS = [
     { cmd: 'theme.next' }, { cmd: 'font.bigger' }, { cmd: 'font.smaller' }, { sep: true },
     { cmd: 'view.toolbar' }, { cmd: 'view.sidebar' }, { cmd: 'view.panel' }, { cmd: 'view.files' }, { sep: true }, { cmd: 'app.settings' },
   ] },
-  { label: 'Help', hot: 'H', items: [{ cmd: 'help.start', label: 'Start screen' }, { cmd: 'help.welcome' }, { cmd: 'help.keys' }, { cmd: 'app.palette' }, { cmd: 'help.tools' }, { cmd: 'help.cppref' }, { cmd: 'help.man' }, { cmd: 'help.about' }] },
+  { label: 'Help', hot: 'H', items: [{ cmd: 'help.start', label: 'Start screen' }, { cmd: 'help.where' }, { cmd: 'help.welcome' }, { cmd: 'help.keys' }, { cmd: 'app.palette' }, { cmd: 'app.inbox' }, { cmd: 'help.tools' }, { cmd: 'help.reference' }, { cmd: 'help.cppref' }, { cmd: 'help.man' }, { cmd: 'help.about' }] },
 ];
 
 // The toolbar: the language, then the everyday commands in the order you use them
@@ -109,6 +130,10 @@ const TOOLBAR = [
   { cmd: 'sandbox.open', label: 'Sandbox', icon: '◊' },
   { cmd: 'judge.open', label: 'Judge', icon: '±' },
   { cmd: 'guides.show', label: 'Guides', icon: '?' },
+  { sep: true },
+  { cmd: 'learn.show', label: 'Learn', icon: '♦' },
+  { cmd: 'focus.toggle', label: 'Focus', icon: '◎' },
+  { cmd: 'git.checkpoint', label: 'Checkpoint', icon: '⌂' },
   { spring: true },
   { cmd: 'app.palette', label: 'Commands', icon: '»' },
 ];
@@ -169,32 +194,6 @@ function appCommands() {
   command('view.sidebar', 'Show/hide sidebar', ['Ctrl+B'], () => sidebar.toggle());
   command('view.panel', 'Show/hide bottom panel', ['Ctrl+J'], () => panel.toggle());
   command('view.files', 'Files', ['Ctrl+Shift+E'], () => sidebar.show('files'));
-  command('help.man', 'man page...', [], async () => {
-    const { prompt } = await import('./ui.js');
-    const page = await prompt('man page', 'Which page?', '3 printf', { hint: 'For example: gdb · cmake · ctest · clang-tidy · 3 printf. For the C++ library itself, cppreference is better (Ctrl+Shift+H).' });
-    if (!page) return;
-    const args = page.trim().split(/\s+/).filter((a) => /^[\w.+:-]+$/.test(a));
-    if (args.length) newTerminal(undefined, ['man', ...args], `man ${args.join(' ')}`);
-  });
-  // cppreference.com, for the word under the cursor (std::vector, emplace_back...)
-  command('help.cppref', 'Look it up on cppreference', ['Ctrl+Shift+H'], async () => {
-    const { activeEditor } = await import('./editor.js');
-    const { prompt } = await import('./ui.js');
-    const t = activeEditor();
-    let word = '';
-    if (t) {
-      const st = t.view.state, sel = st.selection.main;
-      if (!sel.empty) word = st.sliceDoc(sel.from, sel.to);
-      else {
-        const line = st.doc.lineAt(sel.head), col = sel.head - line.from;
-        const re = /[A-Za-z_][\w:]*/g;
-        let m;
-        while ((m = re.exec(line.text))) if (m.index <= col && col <= m.index + m[0].length) { word = m[0]; break; }
-      }
-    }
-    const q = await prompt('cppreference', 'Look up', word.replace(/^std::/, 'std::'), { hint: language() === 'c' ? 'Opens en.cppreference.com (it covers the C library too: printf, malloc, strtol...) in your browser' : 'Opens en.cppreference.com in your browser' });
-    if (q && q.trim()) window.open(`https://en.cppreference.com/mwiki/index.php?search=${encodeURIComponent(q.trim())}`, '_blank', 'noopener');
-  });
   // What's installed: which parts of the app will work on this machine
   command('help.tools', 'Which tools are installed?', [], async () => {
     const { dialog } = await import('./ui.js');
@@ -258,6 +257,8 @@ async function restoreSession() {
       else if (s.kind === 'settings') runCommand('app.settings');
       else if (s.kind === 'welcome') runCommand('help.welcome');
       else if (s.kind === 'start') runCommand('help.start');
+      else if (s.kind === 'exercise') await runCommand('exercise.open', s.ex);
+      else if (s.kind && s.kind.startsWith('page:')) runCommand(s.kind.slice(5));
     } catch (err) { /* the file moved; skip it */ }
   }
   for (const s of saved) if (s.side === 'right' && s.id && tabs.get(s.id)) tabs.move(s.id, 'right');
@@ -283,8 +284,10 @@ async function boot() {
   const root = document.getElementById('app');
   root.textContent = '';
   buildShell(root, FKEYS);
-  initEditorCommands(); initFiles(); initOutline(); initTerminal(); initBuild(); initTests(); initJudge(); initGit(); initGuides(); initRevise();
-  await initIrc(); initMail(); initMusic(); initSettings(); initWelcome(); initPalette(); initNewStuff(); initStart(); appCommands();
+  initEditorCommands(); initFiles(); initExercises(); initOutline(); initTerminal(); initBuild(); initTests(); initJudge(); initGit(); initGuides(); initRevise();
+  await initIrc(); initMail(); initMusic(); initSettings(); initWelcome(); initPalette(); initNewStuff(); initStart();
+  initComfort(); initProgress(); initMemviz(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
+  applyComfort(cfg);
   menubar.build(MENUS);
   toolbar.build(TOOLBAR);
   sidebar.buildHead();
@@ -309,14 +312,14 @@ async function boot() {
   const vaultKey = (c) => JSON.stringify(c.vaults || []);
   onSettingsSaved((saved) => {
     const vaultChanged = vaultKey(saved) !== vaultKey(cfg);
-    cfg = saved; setConfig(cfg); setLanguageConfig(cfg); showLanguage();
+    cfg = saved; setConfig(cfg); setLanguageConfig(cfg); showLanguage(); applyComfort(cfg);
     setTheme(cfg.theme, cfg.fontSize); setKeymap(cfg.keymap); setMusicUrl(cfg.music.url);
     if (cfg.workspace) setRoot(cfg.workspace);
     setFolders(cfg.folders || []);
     if (vaultChanged) loadNotes();
   });
   // another part saved settings (a folder added, a vault removed, word wrap): keep up
-  window.addEventListener('cpw-config', (e) => { if (e.detail) { cfg = e.detail; setConfig(cfg); } });
+  window.addEventListener('cpw-config', (e) => { if (e.detail) { cfg = e.detail; setConfig(cfg); applyComfort(cfg); } });
 
   await restoreSession();
 }
