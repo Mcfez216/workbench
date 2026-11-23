@@ -1,7 +1,7 @@
 {
   "name": "cpp-path-workbench",
   "version": "0.1.0",
-  "description": "One window for learning C++: editor with clangd, CMake, CTest, gdb, sanitizers, clang-tidy and cppcheck, a C++ sandbox with an assembly view, a competitive-programming judge, terminal, git, guides, IRC, mail and music.",
+  "description": "One window for learning and writing C and C++: editor with clangd, CMake, CTest, gdb, Valgrind, sanitizers, clang-tidy and cppcheck, C and C++ sandboxes with an assembly view, a competitive-programming judge, terminal, git, several notes vaults, IRC, mail and music.",
   "private": true,
   "license": "GPL-2.0-only",
   "main": "main.js",

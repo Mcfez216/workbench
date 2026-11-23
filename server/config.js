@@ -35,15 +35,22 @@ function defaults() {
   const workspace = firstExisting([path.join(HOME, 'cpp-path'), path.join(APP_PARENT, 'cpp-path'), path.join(HOME, 'src')]) || HOME;
   return {
     theme: 'blue',
+    look: { palette: 'soft', retroFont: 'vga' },   // soft | vga colours; vga | modern font in the retro themes
+    language: 'cpp',             // cpp | c: what new files, the sandbox and the judge start as
     keymap: 'vim',               // vim | standard | emacs (the vault's editor is Neovim, note 0.3)
     fontSize: 16,
     workspace,                   // where you copied the vault's _code (note: CPP Start Here)
-    vault: null,                 // the CPP-Path folder; found on first start if left empty
+    folders: [],                 // more folders shown in Files next to the workspace
+    vault: null,                 // old single-vault setting; kept in step with vaults[0]
+    vaults: [],                  // [{ path, name }]: every notes vault shown in Guides
+    editor: { autosave: false, wrap: false, snippets: true },
     build: {
       buildType: 'Debug',        // Debug has ASan + UBSan on (the vault's CMakeLists.txt)
       jobs: Math.max(1, os.cpus().length),
       compiler: 'g++',           // for single files, the sandbox and the judge: g++ or clang++
       std: 'c++20',
+      cCompiler: 'gcc',          // the same for C: gcc or clang
+      cStd: 'c17',
       sandboxFlags: ['-Wall', '-Wextra', '-Wpedantic', '-g', '-O0', '-fsanitize=address,undefined', '-fno-omit-frame-pointer'],
     },
     judge: { timeLimitMs: 2000, flags: ['-O2', '-Wall'] },
@@ -82,15 +89,43 @@ let current = null;
 function load() {
   let saved = {};
   try { saved = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch (e) { /* first run */ }
-  current = merge(defaults(), saved);
-  if (!current.vault) current.vault = findVault();
+  current = normalize(merge(defaults(), saved));
+  if (!current.vaults.length) {
+    const found = findVault();
+    if (found) current.vaults = [{ path: found, name: vaultName(found) }];
+  }
+  current.vault = current.vaults[0] ? current.vaults[0].path : null;
   return current;
+}
+
+function vaultName(p) { return path.basename(String(p).replace(/\/+$/, '')) || p; }
+
+// Settings files from before several vaults: "vault" becomes the first of
+// "vaults". Entries are cleaned up (no blanks, no duplicates, always named).
+function normalize(c) {
+  let list = Array.isArray(c.vaults) ? c.vaults : [];
+  list = list.map((v) => (typeof v === 'string' ? { path: v } : v)).filter((v) => v && v.path && String(v.path).trim());
+  if (!list.length && c.vault) list = [{ path: c.vault }];
+  const seen = new Set();
+  c.vaults = [];
+  for (const v of list) {
+    const key = path.normalize(expand(String(v.path).trim())).replace(/(.)\/+$/, '$1');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    c.vaults.push({ path: String(v.path).trim(), name: (v.name && String(v.name).trim()) || vaultName(v.path) });
+  }
+  c.vault = c.vaults[0] ? c.vaults[0].path : null;
+  c.folders = (Array.isArray(c.folders) ? c.folders : []).map(String).map((f) => f.trim()).filter(Boolean);
+  if (!['c', 'cpp'].includes(c.language)) c.language = 'cpp';
+  return c;
 }
 
 function get() { return current || load(); }
 
 function save(next) {
-  current = merge(defaults(), next);
+  // "vaults" is the real list; the old "vault" only counts when it's missing
+  if (next && Array.isArray(next.vaults)) next = { ...next, vault: next.vaults[0] ? (next.vaults[0].path || next.vaults[0]) : null };
+  current = normalize(merge(defaults(), next));
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
   const tmp = CONFIG_FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(current, null, 2) + '\n', { mode: 0o600 });

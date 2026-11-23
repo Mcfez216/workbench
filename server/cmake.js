@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const pty = require('./pty');
-const { execStream, runProgram, buildSingle, CXX_EXT } = require('./build');
+const { execStream, runProgram, buildSingle, debugSingle, valgrindSingle, which, hint, SOURCE_EXT } = require('./build');
 const { catchSummary, ctestLine } = require('./parse');
 
 let api;
@@ -182,20 +182,28 @@ async function resolveTarget({ file, root, target }) {
 
 // Ctrl+F9: build the program this file is part of, then run it in a
 // terminal (it can read std::cin there) from the project folder.
-async function run({ file, root, target, args = '' }) {
+async function run({ file, root, target, args = '', tool }) {
   const rt = await resolveTarget({ file, root, target });
   if (!rt.root) {
-    if (!file || !CXX_EXT.test(file)) throw new Error('Open a .cpp file (or a file in a CMake project) first');
+    if (!file || !SOURCE_EXT.test(file)) throw new Error('Open a .c or .cpp file (or a file in a CMake project) first');
+    if (tool === 'valgrind') return valgrindSingle({ file, args });
     const r = await buildSingle({ file });
     if (r.code !== 0) return { ok: false, ...r, output: undefined };
-    const term = runProgram({ cwd: path.dirname(file), command: `./${q(path.basename(r.output))} ${args}`.trim(), title: `run: ${path.basename(r.output)}` });
-    return { ok: true, ...r, output: undefined, terminal: term };
+    const term = runProgram({ cwd: path.dirname(file), command: `./${q(path.basename(r.exe))} ${args}`.trim(), title: `run: ${path.basename(r.exe)}` });
+    return { ok: true, ...r, terminal: term, target: path.basename(r.exe) };
   }
   if (rt.failed) return { ok: false, ...rt.failed };
   if (!rt.target) return { ok: false, needTarget: true, root: rt.root, choices: rt.choices };
+  if (tool === 'valgrind') {
+    if (!which('valgrind')) throw new Error(`Valgrind is not installed (${hint('valgrind')})`);
+    if (/-fsanitize/.test(cacheValue(buildDir(rt.root), 'CMAKE_CXX_FLAGS') || '') || (config.get().build.buildType || 'Debug') === 'Debug') {
+      throw new Error('Valgrind and AddressSanitizer can\'t share a program, and Debug builds have ASan on. Use Settings → CMake build type: RelWithDebInfo for Valgrind, or run a single file / the sandbox under Valgrind.');
+    }
+  }
   const r = await build({ root: rt.root, target: rt.target.name });
   if (r.code !== 0) return { ok: false, ...r };
-  const term = runProgram({ cwd: rt.root, command: `${q(rt.target.artifact)} ${args}`.trim(), title: `run: ${rt.target.name}` });
+  const vg = tool === 'valgrind' ? 'valgrind --leak-check=full --track-origins=yes --error-exitcode=99 ' : '';
+  const term = runProgram({ cwd: rt.root, command: `${vg}${q(rt.target.artifact)} ${args}`.trim(), title: `${vg ? 'valgrind' : 'run'}: ${rt.target.name}` });
   return { ok: true, ...r, target: rt.target.name, terminal: term };
 }
 
@@ -204,12 +212,15 @@ async function run({ file, root, target, args = '' }) {
 // (note 4.03: the ASan-under-gdb conflict); ASan itself stays on.
 async function debug({ file, line, root, target, args = '' }) {
   const rt = await resolveTarget({ file, root, target });
-  if (!rt.root) throw new Error('Debugging needs a CMake project (or use the terminal: g++ -g file.cpp && gdb ./a.out)');
+  if (!rt.root) {
+    if (file && SOURCE_EXT.test(file)) return debugSingle({ file, line, args });
+    throw new Error('Open a .c or .cpp file, or a file in a CMake project, to debug');
+  }
   if (rt.failed) return { ok: false, ...rt.failed };
   if (!rt.target) return { ok: false, needTarget: true, root: rt.root, choices: rt.choices };
   const r = await build({ root: rt.root, target: rt.target.name });
   if (r.code !== 0) return { ok: false, ...r };
-  const stop = file && line && /\.(cpp|cc|cxx|hpp|hh|h|ipp)$/.test(file) ? `break ${file}:${line}` : 'break main';
+  const stop = file && line && /\.(cpp|cc|cxx|c|hpp|hh|h|ipp)$/.test(file) ? `break ${file}:${line}` : 'break main';
   const argv = ['gdb', '-q', '-ex', 'set pagination off', '-ex', stop, '-ex', 'run', '--args', rt.target.artifact, ...String(args).split(/\s+/).filter(Boolean)];
   const term = pty.open({ cwd: rt.root, title: `gdb: ${rt.target.name}`, argv, env: { ASAN_OPTIONS: 'detect_leaks=0' } });
   return { ok: true, ...r, target: rt.target.name, terminal: term, breakpoint: stop.slice(6) };

@@ -38,6 +38,12 @@ function start({ root, session = '' }) {
   const proc = spawn(c.command || 'clangd', c.args || [], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
   const s = { proc, buf: Buffer.alloc(0), session };
   servers.set(root, s);
+  // Answer once clangd has really started (or couldn't): a window that
+  // thinks it's talking to a clangd that isn't installed waits on it forever.
+  const started = new Promise((resolve, reject) => {
+    proc.once('spawn', () => resolve({ root, running: true }));
+    proc.once('error', (err) => reject(new Error(err.code === 'ENOENT' ? `clangd is not installed (${require('./distro').installHint('clangd')}); completion and errors-as-you-type are off` : err.message)));
+  });
   proc.stdout.on('data', (chunk) => {
     s.buf = Buffer.concat([s.buf, chunk]);
     for (;;) {
@@ -59,7 +65,7 @@ function start({ root, session = '' }) {
     api.broadcast('lsp.exit', { root, session, error: err.code === 'ENOENT' ? `clangd is not installed (${require('./distro').installHint('clangd')})` : err.message });
   });
   proc.on('close', (code) => { gone(); api.broadcast('lsp.exit', { root, session, code }); });
-  return { root, running: true };
+  return started;
 }
 
 function send({ root, session = '', message }) {

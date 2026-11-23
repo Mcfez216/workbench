@@ -12,7 +12,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
-const { execStream } = require('./build');
+const { execStream, toolchain } = require('./build');
 
 const MAX_OUT = 4 * 1024 * 1024;
 
@@ -66,13 +66,14 @@ function runCase(exe, input, timeLimitMs) {
 
 async function judge({ file, cases, timeLimitMs }) {
   const cfg = config.get();
-  if (!file || !/\.(cpp|cc|cxx)$/.test(file)) throw new Error('Open the .cpp file you want to judge');
+  if (!file || !/\.(cpp|cc|cxx|c)$/.test(file)) throw new Error('Open the .c or .cpp file you want to judge');
+  const tc = toolchain(/\.c$/.test(file) ? 'c' : 'cpp');
   if (cases) saveCases({ file, cases, timeLimitMs });
   const tl = Math.max(100, Math.min(Number(timeLimitMs) || cfg.judge.timeLimitMs || 2000, 60000));
   const list = cases || getCases({ file }).cases;
   const exe = config.dataPath('cp-bin', path.basename(file).replace(/\.\w+$/, ''));
   const flags = cfg.judge.flags && cfg.judge.flags.length ? cfg.judge.flags : ['-O2', '-Wall'];
-  const c = await execStream({ cmd: cfg.build.compiler || 'g++', args: [`-std=${cfg.build.std || 'c++20'}`, ...flags, '-o', exe, file],
+  const c = await execStream({ cmd: tc.cc, args: [`-std=${tc.std}`, ...flags, '-o', exe, file, ...(tc.lang === 'c' ? ['-lm'] : [])],
     cwd: path.dirname(file), title: `judge: compile ${path.basename(file)}` });
   if (c.code !== 0) return { compiled: false, problems: c.problems, results: [] };
   const results = [];
@@ -89,20 +90,22 @@ async function judge({ file, cases, timeLimitMs }) {
   return { compiled: true, problems: c.problems, results, timeLimitMs: tl };
 }
 
-// A new problem: a copy of the vault's template.cpp to start from.
-function newProblem({ name }) {
+// A new problem: a copy of the vault's template.cpp (or template.c) to start from.
+function newProblem({ name, lang }) {
   const cfg = config.get();
-  const safe = String(name || '').trim().replace(/\.cpp$/, '').replace(/[^\w.-]+/g, '_');
+  const l = lang || (/\.c$/.test(String(name || '')) ? 'c' : cfg.language === 'c' ? 'c' : 'cpp');
+  const ext = l === 'c' ? 'c' : 'cpp';
+  const safe = String(name || '').trim().replace(/\.(cpp|c)$/, '').replace(/[^\w.-]+/g, '_');
   if (!safe) throw new Error('Give the problem a name, for example cf-1850A');
   const ws = config.expand(cfg.workspace);
   const dir = path.join(ws, 'cp', 'problems');
-  const file = path.join(dir, `${safe}.cpp`);
+  const file = path.join(dir, `${safe}.${ext}`);
   if (fs.existsSync(file)) throw new Error(`${file} already exists`);
-  const sources = [path.join(ws, 'cp', 'template.cpp')];
-  if (cfg.vault) sources.push(path.join(config.expand(cfg.vault), '_code', 'cp', 'template.cpp'));
+  const sources = [path.join(ws, 'cp', `template.${ext}`)];
+  for (const v of cfg.vaults || []) sources.push(path.join(config.expand(v.path), '_code', 'cp', `template.${ext}`));
   const tpl = sources.find((s) => fs.existsSync(s));
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(file, tpl ? fs.readFileSync(tpl, 'utf8') : FALLBACK);
+  fs.writeFileSync(file, tpl ? fs.readFileSync(tpl, 'utf8') : ext === 'c' ? FALLBACK_C : FALLBACK);
   return { file, from: tpl || null };
 }
 const FALLBACK = `#include <bits/stdc++.h>
@@ -119,6 +122,24 @@ int main() {
     cin.tie(nullptr);
     int testCases = 1;
     // cin >> testCases;
+    while (testCases--) solve();
+    return 0;
+}
+`;
+
+const FALLBACK_C = `#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static void solve(void) {
+    int n;
+    if (scanf("%d", &n) != 1) return;
+    printf("%d\\n", n);
+}
+
+int main(void) {
+    int testCases = 1;
+    /* if (scanf("%d", &testCases) != 1) return 0; */
     while (testCases--) solve();
     return 0;
 }

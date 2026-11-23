@@ -226,8 +226,11 @@ async function main() {
       const name = (await fileTab.locator('.tab-label').innerText()).replace('● ', '');
       // open Settings, then send it to the right
       await page.evaluate(() => window.dispatchEvent(new Event('resize')));
-      await page.keyboard.press('Control+Shift+P').catch(() => {});
-      await page.evaluate(() => document.querySelector('.tab-page.active') && 0);
+      // Ctrl+Shift+P is the command palette: it opens, lists commands with their keys, Escape closes it
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette .palette-row');
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('.veil'));
       await page.locator('.menubar-item', { hasText: 'View' }).click();
       await page.locator('.menu-pop >> text=Move this tab to the other side').click();
       await page.waitForSelector('.tabbody.split .pane.right:not([hidden]) .tab-page.active');
@@ -367,9 +370,87 @@ async function main() {
       await keys('Standard');
     });
 
+    await step('the toolbar\'s C / C++ switch: the sandbox becomes C, and ASan still catches it', async () => {
+      await page.locator('.toolbar-main .lang-switch .choice', { hasText: /^C$/ }).click();
+      await page.waitForFunction(() => /C: C17 · gcc/.test(document.querySelector('.statusline').innerText));
+      await page.keyboard.press('F4');
+      await page.waitForSelector('.tab.active:has-text("C sandbox")');
+      assert.strictEqual(await page.locator('.tab-page.active .sb-file').innerText(), 'scratch.c');
+      await page.selectOption('.tab-page.active select', { label: 'Break it: use after free (ASan)' });
+      await page.waitForFunction(() => /free\(p\);/.test(document.querySelector('.tab-page.active .cm-content')?.innerText || ''));
+      await page.keyboard.press('Control+F9');
+      await page.waitForSelector('.tab-page.active[data-kind="sandbox"] .cm-runtimeLine', { timeout: 30000 });
+      assert.match(await page.locator('.tab-page.active .cm-runtimeMsg').innerText(), /use-after-free/);
+      await shot('14-c-sandbox');
+      // Ctrl+Shift+J flips back: the sandbox brings back its C++ source
+      await page.keyboard.press('Control+Shift+J');
+      await page.waitForSelector('.tab.active:has-text("C++ sandbox")');
+      await page.waitForFunction(() => /std::/.test(document.querySelector('.tab-page.active .cm-content')?.innerText || '') || /#include <i/.test(document.querySelector('.tab-page.active .cm-content')?.innerText || ''));
+      assert.match(await page.locator('.statusline').innerText(), /C\+\+: C\+\+20 · g\+\+/);
+    });
+
+    await step('guides: several vaults side by side, and a link stays in its own vault', async () => {
+      await page.keyboard.press('F1');
+      await page.waitForSelector('.side-view:not([hidden]) .vault-row:has-text("C-Path")');
+      assert.ok(await page.locator('.side-view:not([hidden]) .vault-row', { hasText: 'Scratch Notes' }).count());
+      await page.locator('.side-view:not([hidden]) .tree-row', { hasText: 'C Start Here' }).click();
+      await page.waitForSelector('.tab.active:has-text("C Start Here")');
+      await page.locator('.tab-page.active a.wikilink', { hasText: 'Pointers' }).click();
+      await page.waitForSelector('.tab-page.active h1:has-text("Pointers in C")');
+      // the C example goes to the C sandbox
+      await page.locator('.tab-page.active .code-tools button', { hasText: 'Try in sandbox' }).click();
+      await page.waitForSelector('.tab.active:has-text("C sandbox")');
+      await page.waitForFunction(() => /int \*p = &x;/.test(document.querySelector('.tab-page.active .cm-content')?.innerText || ''));
+      // the other vault's Start Here links to its own Pointers note
+      await page.keyboard.press('F1');
+      await page.locator('.side-view:not([hidden]) .tree-row', { hasText: /^Start Here$/ }).click();
+      await page.locator('.tab-page.active a.wikilink', { hasText: 'Pointers' }).click();
+      await page.waitForSelector('.tab-page.active h1:has-text("Pointers, in my words")');
+      assert.strictEqual(await page.locator('.tab .tab-label', { hasText: /^Pointers$/ }).count(), 2, 'two Pointers tabs, one per vault');
+      // fold a vault away
+      await page.locator('.side-view:not([hidden]) .vault-row', { hasText: 'Scratch Notes' }).click();
+      await page.waitForFunction(() => ![...document.querySelectorAll('.side-view:not([hidden]) .tree-row')].some((b) => b.textContent === 'Start Here'));
+      await shot('15-vaults');
+      await page.keyboard.press('Control+Shift+J');   // back to C++
+      await page.waitForFunction(() => /C\+\+: /.test(document.querySelector('.statusline').innerText));
+    });
+
+    await step('the palette runs anything by name; New file makes a C program; the outline lists it', async () => {
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('new file');
+      await page.waitForSelector('.palette-row.sel:has-text("New file")');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.dialog:has-text("New file")');
+      await page.locator('.dialog .choice', { hasText: /^C$/ }).click();
+      await page.locator('.dialog #nf-name').fill('tryit');
+      await page.locator('.dialog #nf-dir').fill('~/scratch-c');      // not in a CMake project: gcc builds it alone
+      assert.match(await page.locator('.dialog .hint').innerText(), /tryit\.c$/);
+      await page.locator('.dialog .dlg-btn', { hasText: 'Create' }).click();
+      await page.waitForSelector('.tab.active:has-text("tryit.c")');
+      await page.waitForFunction(() => /int main\(void\)/.test(document.querySelector('.tab-page.active .cm-content')?.innerText || ''));
+      await page.keyboard.press('Control+Shift+B');
+      await page.waitForSelector('.side-view:not([hidden]) .outline-row:has-text("main")');
+      assert.match(await page.locator('.side-view:not([hidden]) .outline-row').first().innerText(), /main\s*\(void\)/);
+      // Ctrl+F9 on a lone .c file: gcc, then it runs
+      await page.keyboard.press('Control+F9');
+      await page.waitForFunction(() => /Hello from tryit!/.test(document.querySelector('.term-host')?.innerText || ''), null, { timeout: 20000 });
+      await page.keyboard.press('Control+Shift+W');
+    });
+
+    await step('the start screen: the language, ways to begin, and recent files', async () => {
+      await page.locator('.menubar-item', { hasText: 'Help' }).click();
+      await page.locator('.menu-pop .menu-item', { hasText: 'Start screen' }).click();
+      await page.waitForSelector('.tab-page.active .start .start-action:has-text("New project")');
+      assert.ok(await page.locator('.tab-page.active .start .list-row', { hasText: 'tryit.c' }).count(), 'recent files');
+      assert.ok(await page.locator('.tab-page.active .start .list-row', { hasText: 'C-Path' }).count(), 'vaults');
+      await shot('16-start');
+      await page.keyboard.press('Control+W');
+    });
+
     await step('every theme applies (and saves)', async () => {
       await page.locator('.tab', { hasText: '03_square.cpp' }).first().click();
-      for (const name of ['turbo', 'norton', 'modern', 'blue']) {
+      for (const name of ['turbo', 'norton', 'amber', 'modern', 'blue']) {
         await page.keyboard.press('Control+Shift+Y');
         await page.waitForTimeout(250);
         const t = await page.evaluate(() => document.documentElement.dataset.theme);

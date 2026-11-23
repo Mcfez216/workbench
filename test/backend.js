@@ -482,6 +482,149 @@ async function test(name, fn) {
     } finally { delete process.env.WORKBENCH_WIN_USERS; fs.rmSync(path.join(HOME, 'fake-c'), { recursive: true }); }
   });
 
+  await test('config: an old single "vault" becomes the first of several, with the new defaults', async () => {
+    const tmp = fs.mkdtempSync(path.join(HOME, 'cfg-'));
+    const dir = path.join(tmp, '.config', 'cpp-path-workbench');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ vault: '~/Old Vault', theme: 'turbo' }));
+    const script = `const c = require(${JSON.stringify(path.join(__dirname, '..', 'server', 'config.js'))});
+      const x = c.load(); const a = { vaults: x.vaults, vault: x.vault, language: x.language, look: x.look, cStd: x.build.cStd, theme: x.theme };
+      const y = c.save({ ...x, vaults: [] }); const b = { vaults: y.vaults, vault: y.vault };
+      const z = c.save({ ...x, vaults: [{ path: '/n/A' }, '/n/B', { path: '/n/A/' }, { path: ' ' }] }); console.log(JSON.stringify({ a, b, z: z.vaults }));`;
+    const out = JSON.parse(require('child_process').execFileSync(process.execPath, ['-e', script], { env: { ...process.env, HOME: tmp }, encoding: 'utf8' }));
+    assert.deepStrictEqual(out.a.vaults, [{ path: '~/Old Vault', name: 'Old Vault' }]);
+    assert.strictEqual(out.a.vault, '~/Old Vault');
+    assert.deepStrictEqual([out.a.language, out.a.look.palette, out.a.look.retroFont, out.a.cStd, out.a.theme], ['cpp', 'soft', 'vga', 'c17', 'turbo']);
+    assert.deepStrictEqual(out.b, { vaults: [], vault: null }, 'removing every vault sticks: the old "vault" doesn\'t come back');
+    assert.deepStrictEqual(out.z.map((v) => v.path), ['/n/A', '/n/B'], 'no blanks, no duplicates');
+    fs.rmSync(tmp, { recursive: true });
+  });
+
+  await test('guides: several vaults at once; each note knows its vault and links stay inside it', async () => {
+    const l = await call('guides.list');
+    const cv = l.vaults.find((v) => v.name === 'C-Path'), mv = l.vaults.find((v) => v.name === 'Scratch Notes');
+    assert.ok(cv && mv, JSON.stringify(l.vaults));
+    assert.deepStrictEqual([cv.count, cv.start, mv.count, mv.start], [2, 'C Start Here', 2, 'Start Here']);
+    assert.strictEqual(l.notes.filter((n) => n.name === 'Pointers').length, 2, 'the same name in two vaults');
+    const inC = await call('guides.read', { name: 'Pointers', vault: cv.path });
+    assert.match(inC.text, /Pointers in C/);
+    assert.strictEqual(inC.vaultName, 'C-Path');
+    const mine = await call('guides.read', { name: 'Pointers', vault: mv.path });
+    assert.match(mine.text, /in my words/);
+    const hits = await call('guides.search', { query: 'pointers', vault: mv.path });
+    assert.ok(hits.length && hits.every((x) => x.vault === mv.path));
+    const all = await call('guides.search', { query: 'pointers' });
+    assert.ok(all.some((x) => x.vault === cv.path) && all.some((x) => x.vault === mv.path));
+    const code = await call('guides.codePath', { rel: '_code/hello.c', vault: cv.path });
+    assert.strictEqual(code.path, path.join(cv.path, '_code', 'hello.c'));
+    const cards = await call('guides.cards');
+    assert.ok(cards.questions.some((q) => q.vaultName === 'C-Path' && q.phase === 1 && /\*p/.test(q.q)));
+    assert.ok(cards.why.some((q) => q.vault === cv.path));
+    await assert.rejects(call('guides.read', { file: path.join(PROJ, 'CMakeLists.txt') }), /outside your vaults/);
+  });
+
+  await test('sandbox: C with gcc, its own scratch.c, a runtime problem, Valgrind, and the assembly', async () => {
+    const src = '#include <stdio.h>\n#include <stdlib.h>\n\nint main(void) {\n    int *p = malloc(sizeof *p);\n    free(p);\n    printf("%d\\n", *p);\n    return 0;\n}\n';
+    const got = waitFor('build.runtime', (d) => d.problems.some((x) => /use-after-free/.test(x.message)), 30000);
+    const r = await call('sandbox.run', { source: src, lang: 'c', compiler: 'gcc', std: 'c17' });
+    assert.ok(r.ok, 'compiles as C');
+    assert.match(r.file, /scratch\.c$/);
+    const d = await got;
+    const p = d.problems.find((x) => /use-after-free/.test(x.message));
+    assert.deepStrictEqual([p.file, p.line], [r.file, 7]);
+    await call('pty.close', { id: r.terminal.id });
+    // C isn't C++: this only compiles as C
+    const cOnly = await call('sandbox.run', { source: '#include <stdlib.h>\nint main(void) { int *new = malloc(4); free(new); return 0; }\n', lang: 'c' });
+    assert.ok(cOnly.ok, '"new" is just a name in C');
+    await call('pty.close', { id: cOnly.terminal.id });
+    if (require('../server/build').which('valgrind')) {
+      let out = '';
+      c.on((ev, x) => { if (ev === 'pty.data') out += x.data; });
+      const v = await call('sandbox.run', { source: '#include <stdlib.h>\nint main(void) { int *a = malloc(40); a[0] = 1; return 0; }\n', lang: 'c', tool: 'valgrind' });
+      assert.ok(v.ok);
+      assert.ok(await until(() => /definitely lost: 40 bytes/.test(out), 30000), out.slice(-400));
+      await call('pty.close', { id: v.terminal.id });
+    }
+    const asm = await call('sandbox.asm', { source: 'int square(int x) {\n    return x * x;\n}\n', lang: 'c', opt: '-O1' });
+    assert.ok(asm.ok);
+    assert.match(asm.flags, /^gcc -std=c17/);
+    assert.match(asm.lines.map((l) => l.text).join('\n'), /^square:$/m);
+  });
+
+  await test('C: a lone .c file builds with gcc, runs, and gdb stops in it without CMake', async () => {
+    const dir = path.join(HOME, 'lone-c');
+    fs.mkdirSync(dir, { recursive: true });
+    const f = path.join(dir, 'hello.c');
+    fs.writeFileSync(f, '#include <stdio.h>\n\nint main(void) {\n    int n = 6 * 7;\n    printf("n is %d\\n", n);\n    return 0;\n}\n');
+    let out = '';
+    c.on((ev, x) => { if (ev === 'pty.data') out += x.data.replace(/\x1b\[[0-9;]*m/g, ''); });
+    const r = await call('cmake.run', { file: f });
+    assert.ok(r.ok, JSON.stringify(r.problems));
+    assert.strictEqual(r.lang, 'c');
+    assert.ok(await until(() => /n is 42/.test(out), 15000));
+    await call('pty.close', { id: r.terminal.id });
+    const g = await call('cmake.debug', { file: f, line: 5 });
+    assert.ok(g.ok);
+    assert.ok(await until(() => /Breakpoint 1, main \(\) at .*hello\.c:5/.test(out), 20000), out.slice(-400));
+    await call('pty.write', { id: g.terminal.id, data: 'print n\n' });
+    assert.ok(await until(() => /\$1 = 42/.test(out)));
+    await call('pty.close', { id: g.terminal.id });
+    // and a lone .cpp the same way (this used to run "./" instead of the program)
+    const cpp = path.join(dir, 'hi.cpp');
+    fs.writeFileSync(cpp, '#include <iostream>\nint main() { std::cout << "hi from C++\\n"; }\n');
+    const rc = await call('cmake.run', { file: cpp });
+    assert.ok(rc.ok);
+    assert.ok(await until(() => /hi from C\+\+/.test(out), 15000), out.slice(-300));
+    await call('pty.close', { id: rc.terminal.id });
+    const bad = path.join(dir, 'bad.c');
+    fs.writeFileSync(bad, 'int main(void) {\n    return missing;\n}\n');
+    const b = await call('build.build', { file: bad });
+    assert.notStrictEqual(b.code, 0);
+    assert.deepStrictEqual([b.problems[0].file, b.problems[0].line], [bad, 2]);
+  });
+
+  await test('judge: a C solution, compiled with gcc -O2', async () => {
+    const r = await call('cp.newProblem', { name: 'sum-c', lang: 'c' });
+    assert.match(r.file, /cp\/problems\/sum-c\.c$/);
+    fs.writeFileSync(r.file, '#include <stdio.h>\nint main(void) { long a, b; if (scanf("%ld %ld", &a, &b) != 2) return 1; printf("%ld\\n", a + b); return 0; }\n');
+    const j = await call('cp.judge', { file: r.file, cases: [{ input: '2 3\n', expected: '5\n' }, { input: '1 1\n', expected: '3\n' }] });
+    assert.ok(j.compiled, JSON.stringify(j.problems));
+    assert.deepStrictEqual(j.results.map((x) => x.verdict), ['AC', 'WA']);
+    fs.rmSync(r.file);
+  });
+
+  await test('new project: a C library with tests configures, builds and passes ctest', async () => {
+    const parent = path.join(HOME, 'projects');
+    const r = await call('project.create', { dir: parent, name: 'ring buffer', lang: 'c', kind: 'library' });
+    assert.strictEqual(r.root, path.join(parent, 'ring_buffer'));
+    assert.ok(r.git && fs.existsSync(path.join(r.root, '.git')));
+    for (const f of ['CMakeLists.txt', 'src/main.c', 'src/ring_buffer.c', 'include/ring_buffer.h', 'tests/test_ring_buffer.c', '.clang-format', '.gitignore']) assert.ok(fs.existsSync(path.join(r.root, f)), f);
+    const t = await call('ctest.run', { root: r.root });
+    assert.ok(t.ok, JSON.stringify(t.problems));
+    assert.deepStrictEqual(t.summary, { percent: 100, failed: 0, total: 1 });
+    await assert.rejects(call('project.create', { dir: parent, name: 'ring_buffer', lang: 'c' }), /already exists/);
+    const cpp = await call('project.create', { dir: parent, name: 'shapes', lang: 'cpp', kind: 'console', git: false });
+    const b = await call('build.build', { file: cpp.main });
+    assert.strictEqual(b.code, 0, 'a new C++ program builds warning-clean');
+    assert.ok(!b.problems.some((x) => x.severity === 'warning'));
+    // the header and the source find each other
+    assert.strictEqual((await call('files.counterpart', { file: path.join(r.root, 'src', 'ring_buffer.c') })).file, path.join(r.root, 'include', 'ring_buffer.h'));
+    assert.strictEqual((await call('files.counterpart', { file: path.join(r.root, 'include', 'ring_buffer.h') })).file, path.join(r.root, 'src', 'ring_buffer.c'));
+    const pair = await call('project.newPair', { dir: path.join(cpp.root, 'src'), name: 'Circle', lang: 'cpp' });
+    assert.deepStrictEqual(pair.files.map((f) => path.basename(f)), ['Circle.hpp', 'Circle.cpp']);
+    assert.strictEqual((await call('files.counterpart', { file: pair.files[0] })).file, pair.files[1]);
+    const hdr = await call('project.newFile', { file: path.join(r.root, 'include', 'util.h'), kind: 'header', lang: 'c' });
+    assert.match(fs.readFileSync(hdr.file, 'utf8'), /#ifndef UTIL_H_\n#define UTIL_H_/);
+  });
+
+  if (require('../server/build').which('clang-format')) {
+    await test('format: clang-format on its own, with the project\'s .clang-format', async () => {
+      const r = await call('format.file', { file: path.join(HOME, 'projects', 'shapes', 'src', 'x.cpp'), text: 'int  main( ){return 0;}\n' });
+      // the project's style (4 spaces, short functions not on one line), not LLVM's 2
+      assert.strictEqual(r.text, 'int main() {\n    return 0;\n}\n');
+    });
+  }
+
   await test('state: remembers values', async () => {
     await call('state.set', { key: 'test.x', value: { a: 1 } });
     assert.deepStrictEqual(await call('state.get', { key: 'test.x' }), { a: 1 });

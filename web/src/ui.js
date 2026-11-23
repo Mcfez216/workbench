@@ -143,3 +143,17 @@ export function relTime(iso) {
   return sameDay ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : d.toLocaleDateString([], { day: 'numeric', month: 'short', year: d.getFullYear() === now.getFullYear() ? undefined : '2-digit' });
 }
+
+// A row of buttons, one pressed: [[value, label], ...]. el.value is the
+// choice; it fires "change" when you pick another.
+export function choices(options, value, { label } = {}) {
+  const box = h('div', { class: 'choices', role: 'group', 'aria-label': label || undefined });
+  box.value = value;
+  for (const [v, text, title] of options) {
+    const b = h('button', { type: 'button', class: 'choice', 'aria-pressed': String(v === value), 'data-value': String(v), title: title || undefined }, text);
+    b.addEventListener('click', () => { box.set(v); box.dispatchEvent(new Event('change')); });
+    box.append(b);
+  }
+  box.set = (v) => { box.value = v; box.querySelectorAll('.choice').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.value === String(v)))); };
+  return box;
+}

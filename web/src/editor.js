@@ -9,7 +9,7 @@ import { EditorState, Compartment, StateField, StateEffect, RangeSetBuilder, Pre
 import { WidgetType } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches, openSearchPanel, gotoLine } from '@codemirror/search';
-import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, closeCompletion } from '@codemirror/autocomplete';
+import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, closeCompletion, snippetCompletion } from '@codemirror/autocomplete';
 import { lintKeymap, lintGutter, setDiagnostics } from '@codemirror/lint';
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, syntaxHighlighting, indentUnit, StreamLanguage } from '@codemirror/language';
 import { cpp } from '@codemirror/lang-cpp';
@@ -31,16 +31,24 @@ import { call, on } from './rpc.js';
 import { h, toast, dialog, pathText } from './ui.js';
 import { tabs, command, runCommand, status, setEditorKeymap } from './layout.js';
 import { editorHighlight } from './highlight.js';
+import { fileLanguage } from './lang.js';
 
 let cfg = null;
-export function setConfig(c) { cfg = c; }
+export function setConfig(c) {
+  const wrapWas = cfg && cfg.editor && cfg.editor.wrap;
+  cfg = c;
+  const wrap = !!(cfg.editor && cfg.editor.wrap);
+  if (wrapWas !== undefined && wrap !== !!wrapWas) setWrap(wrap);
+}
 
 // ------------------------------------------------------------------ languages
 export function languageFor(file) {
   const base = file.split('/').pop();
   const ext = base.includes('.') ? base.split('.').pop().toLowerCase() : '';
-  if (['cpp', 'cc', 'cxx', 'hpp', 'hh', 'hxx', 'h', 'ipp', 'tpp', 'inl'].includes(ext)) return { name: 'C++', ext: cpp(), lsp: 'cpp', code: true };
-  if (ext === 'c') return { name: 'C', ext: cpp(), lsp: 'c', code: true };
+  // a .h is C or C++ depending on the language you're working in
+  const code = fileLanguage(file);
+  if (code === 'cpp') return { name: 'C++', ext: cpp(), lsp: 'cpp', code: true, id: 'cpp' };
+  if (code === 'c') return { name: 'C', ext: cpp(), lsp: 'c', code: true, id: 'c' };
   if (base === 'CMakeLists.txt' || ext === 'cmake') return { name: 'CMake', ext: StreamLanguage.define(cmake) };
   if (/^(GNU)?[Mm]akefile$/.test(base) || ext === 'mk') return { name: 'Makefile', ext: StreamLanguage.define(shell), tabs: true };
   if (['sh', 'bash', 'zsh'].includes(ext) || ['.bashrc', '.bash_profile', '.profile'].includes(base)) return { name: 'Shell', ext: StreamLanguage.define(shell) };
@@ -71,6 +79,69 @@ const tabMarks = ViewPlugin.fromClass(class {
   constructor(view) { this.deco = tabMatcher.createDeco(view); }
   update(u) { this.deco = tabMatcher.updateDeco(u, this.deco); }
 }, { decorations: (v) => v.deco });
+
+// ------------------------------------------------------------------ snippets
+// Built in, no plugins: type the word, pick it from the list, Tab moves
+// between the fields. They sit alongside clangd's own completions.
+const S = (label, detail, tpl) => snippetCompletion(tpl, { label, detail, type: 'keyword', boost: -1 });
+const COMMON_SNIPPETS = [
+  S('for', 'counted loop', 'for (${int} ${i} = 0; ${i} < ${n}; ++${i}) {\n\t${}\n}'),
+  S('while', 'loop', 'while (${condition}) {\n\t${}\n}'),
+  S('do', 'do ... while', 'do {\n\t${}\n} while (${condition});'),
+  S('if', 'if', 'if (${condition}) {\n\t${}\n}'),
+  S('ife', 'if ... else', 'if (${condition}) {\n\t${}\n} else {\n\t\n}'),
+  S('switch', 'switch', 'switch (${value}) {\ncase ${0}:\n\t${}\n\tbreak;\ndefault:\n\tbreak;\n}'),
+  S('struct', 'struct', 'struct ${Name} {\n\t${}\n};'),
+  S('#inc', '#include <...>', '#include <${header}>'),
+  S('#incl', '#include "..."', '#include "${header}"'),
+];
+const C_SNIPPETS = [
+  ...COMMON_SNIPPETS,
+  S('main', 'int main(void)', 'int main(void) {\n\t${}\n\treturn 0;\n}'),
+  S('mainargs', 'int main(int argc, char *argv[])', 'int main(int argc, char *argv[]) {\n\t${}\n\treturn 0;\n}'),
+  S('printf', 'printf("...\\n", ...)', 'printf("${%d}\\n", ${value});'),
+  S('scanf', 'scanf with a check', 'if (scanf("${%d}", &${value}) != 1) {\n\t${}\n}'),
+  S('malloc', 'malloc with a check', '${int} *${p} = malloc(${n} * sizeof *${p});\nif (${p} == NULL) {\n\t${}\n}'),
+  S('typedef', 'typedef struct', 'typedef struct ${Name} {\n\t${}\n} ${Name};'),
+  S('guard', 'include guard', '#ifndef ${NAME}_H\n#define ${NAME}_H\n\n${}\n\n#endif /* ${NAME}_H */'),
+  S('fori', 'for over an array', 'for (size_t ${i} = 0; ${i} < sizeof ${arr} / sizeof ${arr}[0]; ++${i}) {\n\t${}\n}'),
+];
+const CPP_SNIPPETS = [
+  ...COMMON_SNIPPETS,
+  S('main', 'int main()', 'int main() {\n\t${}\n\treturn 0;\n}'),
+  S('mainargs', 'int main(int argc, char* argv[])', 'int main(int argc, char* argv[]) {\n\t${}\n\treturn 0;\n}'),
+  S('cout', 'std::cout << ... << \'\\n\'', "std::cout << ${value} << '\\n';"),
+  S('cin', 'std::cin >> ...', 'std::cin >> ${value};'),
+  S('forr', 'range-for', 'for (const auto& ${x} : ${container}) {\n\t${}\n}'),
+  S('class', 'class', 'class ${Name} {\npublic:\n\t${Name}() = default;\n\t${}\nprivate:\n};'),
+  S('ns', 'namespace', 'namespace ${name} {\n\n${}\n\n}  // namespace ${name}'),
+  S('lambda', '[&](...) { ... }', '[${&}](${auto x}) { ${return x;} }'),
+  S('uptr', 'std::make_unique', 'auto ${p} = std::make_unique<${T}>(${});'),
+  S('vec', 'std::vector', 'std::vector<${int}> ${v}${};'),
+  S('try', 'try ... catch', 'try {\n\t${}\n} catch (const std::exception& e) {\n\tstd::cerr << e.what() << \'\\n\';\n}'),
+  S('ruleof5', 'rule of five', '${T}(const ${T}&) = default;\n${T}& operator=(const ${T}&) = default;\n${T}(${T}&&) noexcept = default;\n${T}& operator=(${T}&&) noexcept = default;\n~${T}() = default;'),
+];
+function snippetSource(list) {
+  return (ctx) => {
+    const word = ctx.matchBefore(/#?\w*/);
+    if (!word || (word.from === word.to && !ctx.explicit)) return null;
+    // not inside a string or a comment
+    const line = ctx.state.doc.lineAt(ctx.pos).text.slice(0, ctx.pos - ctx.state.doc.lineAt(ctx.pos).from);
+    if (/\/\/|"[^"]*$/.test(line.replace(/"(?:[^"\\]|\\.)*"/g, ''))) return null;
+    return { from: word.from, options: list, validFor: /^#?\w*$/ };
+  };
+}
+function snippetsFor(lang) {
+  if (!lang.code || (cfg && cfg.editor && cfg.editor.snippets === false)) return [];
+  const src = snippetSource(lang.id === 'c' ? C_SNIPPETS : CPP_SNIPPETS);
+  return EditorState.languageData.of(() => [{ autocomplete: src }]);
+}
+
+// ------------------------------------------------------------------ word wrap
+const wrapCompartment = new Compartment();
+function setWrap(on) {
+  for (const t of tabs.list) if (t.view) t.view.dispatch({ effects: wrapCompartment.reconfigure(on ? EditorView.lineWrapping : []) });
+}
 
 // ------------------------------------------------------------------ runtime marks
 // What AddressSanitizer or UBSan reported when the program ran: the line
@@ -148,6 +219,7 @@ function keymapFor(kind) {
 
 // Emacs: the same keys as the vault's init.el
 EmacsHandler.addCommands({
+  cpwOther: () => runCommand('edit.otherFile'),
   cpwSave: () => runCommand('file.save'),
   cpwFindFile: () => runCommand('file.quickOpen'),
   cpwDef: (handler) => jumpToDefinition(handler.view),
@@ -164,6 +236,7 @@ EmacsHandler.bindKey('C-c m', 'cpwMake');
 EmacsHandler.bindKey('C-c c', 'cpwMake');
 EmacsHandler.bindKey('C-c r', 'cpwRun');
 EmacsHandler.bindKey('C-c t', 'cpwTest');
+EmacsHandler.bindKey('C-c o', 'cpwOther');   // ff-find-other-file
 
 // Vim: :w :q :wq, gd / gr, and the same commands and \c maps as the
 // vault's cpp-path.lua (\cc configure, \cb build, \ct all tests, \cf the
@@ -178,6 +251,7 @@ Vim.defineEx('CTestAll', 'CTestA', () => runCommand('test.all'));
 Vim.defineEx('CTestHere', 'CTestH', () => runCommand('test.here'));
 Vim.defineEx('Format', 'Form', () => runCommand('edit.format'));
 Vim.defineEx('Judge', 'Jud', () => runCommand('judge.open'));
+Vim.defineEx('A', 'A', () => runCommand('edit.otherFile'));   // a.vim's :A, header <-> source
 Vim.map('\\cc', ':CMakeConfigure<CR>', 'normal');
 Vim.map('\\cb', ':CMakeBuild<CR>', 'normal');
 Vim.map('\\ct', ':CTestAll<CR>', 'normal');
@@ -246,8 +320,10 @@ class KPWorkspace extends Workspace {
 
 const clients = new Map();
 const SESSION = Math.random().toString(36).slice(2) + Date.now().toString(36);   // this window load
+let clangdMissing = false;      // said once; not tried again until the window reloads
 function lspClient(root) {
   if (clients.has(root)) return clients.get(root);
+  if (clangdMissing) return Promise.reject(new Error('clangd is not installed'));
   const p = (async () => {
     await call('lsp.start', { root, session: SESSION });
     const handlers = new Set();
@@ -267,14 +343,18 @@ function lspClient(root) {
     return client;
   })();
   clients.set(root, p);
-  p.catch((err) => { clients.delete(root); toast(`clangd: ${err.message}`, 'error'); });
+  p.catch((err) => {
+    clients.delete(root);
+    if (/not installed/.test(err.message)) { if (clangdMissing) return; clangdMissing = true; toast(err.message, 'info', 9000); }
+    else toast(`clangd: ${err.message}`, 'error');
+  });
   return p;
 }
 on('lsp.exit', (d) => {
   if (d.session !== SESSION) return;
   clients.delete(d.root);
   status.set('lsp', '');
-  if (d.error) toast(d.error, 'error', 8000);
+  if (d.error && !/not installed/.test(d.error)) toast(d.error, 'error', 8000);   // "not installed" was already said
 });
 
 async function lspExtension(file, lang) {
@@ -298,10 +378,11 @@ export function createView({ parent, doc, file, lang, onChange, extra = [] }) {
         closeBrackets(), autocompletion({ activateOnTyping: true, defaultKeymap: false }), rectangularSelection(), crosshairCursor(), highlightActiveLine(),
         highlightSelectionMatches(), lintGutter(),
         keymapCompartment.of(keymapFor(cfg ? cfg.keymap : 'standard')),
-        lang.ext, codeStyle(lang), runtimeField,
+        lang.ext, codeStyle(lang), runtimeField, snippetsFor(lang),
+        wrapCompartment.of(cfg && cfg.editor && cfg.editor.wrap ? EditorView.lineWrapping : []),
         EditorView.updateListener.of((u) => {
           if (u.docChanged && onChange) onChange(u);
-          if (u.selectionSet || u.docChanged) cursorStatus(u.view);
+          if (u.selectionSet || u.docChanged) { cursorStatus(u.view); window.dispatchEvent(new CustomEvent('cpw-editor-update', { detail: { docChanged: u.docChanged } })); }
         }),
         ...extra,
       ],
@@ -343,22 +424,40 @@ export async function openFile(file, { line, col, preview, side } = {}) {
         this.savedDoc = null;
         this.view = createView({
           parent: host, doc: res.text, file, lang,
-          onChange: (u) => tabs.setDirty(id, !u.state.doc.eq(this.savedDoc)),
+          onChange: (u) => { tabs.setDirty(id, !u.state.doc.eq(this.savedDoc)); autosaveSoon(this); },
           extra: [lspCompartment.of([])],
         });
         this.savedDoc = this.view.state.doc;
         lspExtension(file, lang).then((ext) => { if (this.view && ext && (ext.length !== 0)) this.view.dispatch({ effects: lspCompartment.reconfigure(ext) }); });
       },
       onShow() { if (this.view) { this.view.requestMeasure(); setTimeout(() => this.view.focus(), 0); cursorStatus(this.view); } status.set('lang', this.lang ? this.lang.name : '', { order: 15, side: 'left' }); },
-      onClose() { if (this.view) this.view.destroy(); },
+      onHide() { if (this.dirty && cfg && cfg.editor && cfg.editor.autosave) saveTab(this); },
+      onClose() { clearTimeout(this.autosaveTimer); if (this.view) this.view.destroy(); },
       save() { return saveTab(this); },
     });
+    rememberRecent(file);
   } else if (side && t.side !== side) tabs.move(id, side);
   else tabs.focus(id);
   if (line) goTo(t.view, line, col);
   return t;
 }
 
+
+// Autosave (Settings → Editor): a second and a half after you stop typing,
+// and when you switch away from the tab.
+function autosaveSoon(t) {
+  if (!cfg || !cfg.editor || !cfg.editor.autosave) return;
+  clearTimeout(t.autosaveTimer);
+  t.autosaveTimer = setTimeout(() => { if (t.dirty && tabs.get(t.id)) saveTab(t); }, 1500);
+}
+
+// The last files you opened, newest first, for the start screen and File → Recent
+export async function rememberRecent(file) {
+  const list = await call('state.get', { key: 'recent.files', fallback: [] });
+  const next = [file, ...list.filter((f) => f !== file)].slice(0, 15);
+  call('state.set', { key: 'recent.files', value: next });
+  window.dispatchEvent(new CustomEvent('cpw-recent'));
+}
 
 export function goTo(view, line, col = 1) {
   if (!view) return;
@@ -456,11 +555,38 @@ export function initEditorCommands() {
   command('edit.definition', 'Go to definition (clangd)', ['F12'], () => { const t = activeEditor(); if (t) jumpToDefinition(t.view); });
   command('edit.references', 'Find references (clangd)', ['Shift+F12'], () => { const t = activeEditor(); if (t) findReferences(t.view); });
   command('edit.rename', 'Rename symbol (clangd)', ['Ctrl+Shift+R'], () => { const t = activeEditor(); if (t) renameSymbol(t.view); });
-  command('edit.format', 'Format file (clang-format, via clangd)', ['Ctrl+Shift+O'], () => {
+  command('edit.format', 'Format file (clang-format)', ['Ctrl+Shift+O'], async () => {
     const t = activeEditor();
     if (!t) return;
-    if (!t.lang.lsp || !cfg.clangd.enabled) return toast('Formatting goes through clangd: C++ files only, with clangd on');
-    if (!formatDocument(t.view)) toast('clangd is still starting; try again in a moment');
+    if (!t.lang.code) return toast('Formatting is for C and C++ files');
+    // through clangd when it's running (it knows the project), else clang-format itself
+    if (cfg.clangd.enabled && LSPPlugin.get(t.view) && formatDocument(t.view)) return;
+    const before = t.view.state.doc.toString();
+    const r = await call('format.file', { file: t.file, text: before });
+    if (r.text === before) return toast('Already formatted', 'ok', 1500);
+    if (t.view.state.doc.toString() !== before) return;     // you typed meanwhile
+    t.view.dispatch({ changes: { from: 0, to: before.length, insert: r.text } });
+    toast('Formatted with clang-format', 'ok', 1500);
+  });
+  command('edit.otherFile', 'Switch header / source', ['Alt+F12'], async () => {
+    const t = activeEditor();
+    if (!t) return toast('Open a source or header file first');
+    const r = await call('files.counterpart', { file: t.file });
+    if (!r.file) return toast(`No header or source file to match ${t.title}`);
+    openFile(r.file);
+  });
+  command('edit.wrap', 'Word wrap on/off', ['Alt+Z'], async () => {
+    const on = !(cfg.editor && cfg.editor.wrap);
+    cfg = await call('config.save', { ...(await call('config.get')), editor: { ...cfg.editor, wrap: on } });
+    window.dispatchEvent(new CustomEvent('cpw-config', { detail: cfg }));
+    setWrap(on);
+    toast(`Word wrap ${on ? 'on' : 'off'}`, 'ok', 1500);
+  });
+  command('edit.autosave', 'Autosave on/off', [], async () => {
+    const on = !(cfg.editor && cfg.editor.autosave);
+    cfg = await call('config.save', { ...(await call('config.get')), editor: { ...cfg.editor, autosave: on } });
+    window.dispatchEvent(new CustomEvent('cpw-config', { detail: cfg }));
+    toast(`Autosave ${on ? 'on: files save themselves a moment after you stop typing' : 'off'}`, 'ok');
   });
   window.addEventListener('beforeunload', (e) => { if (tabs.anyDirty()) { e.preventDefault(); e.returnValue = ''; } });
 }

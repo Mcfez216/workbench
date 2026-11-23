@@ -132,11 +132,25 @@ function makeHome() {
   put(path.join(fakeVault, '_code'), { 'CMakeLists.txt': '# vault copy\n', 'src/a.cpp': 'int a() { return 1; }\n', 'scripts/run.sh': '#!/bin/sh\necho hi\n' });
   fs.chmodSync(path.join(fakeVault, '_code', 'scripts', 'run.sh'), 0o755);
 
+  // two more vaults, for several-vaults-at-once: a C course and your own
+  // notes. Both have a "Pointers" note, so a link must stay in its own vault.
+  const cVault = path.join(home, 'Notes', 'C-Path');
+  put(cVault, {
+    'C Start Here.md': '# C Start Here\n\n> [!abstract] Why this matters\n> C is the language under everything else.\n\nRead [[Pointers]] next. The code: `_code/hello.c`.\n',
+    'Phase 1/Pointers.md': '---\nphase: 1\n---\n# Pointers in C\n\n> [!question]- What does `*p` give you?\n> The value p points at.\n\n```c\n#include <stdio.h>\n\nint main(void) {\n    int x = 41;\n    int *p = &x;\n    ++*p;\n    printf("x = %d\\n", x);\n    return 0;\n}\n```\n',
+    '_code/hello.c': '#include <stdio.h>\n\nint main(void) {\n    printf("hello from the C vault\\n");\n    return 0;\n}\n',
+  });
+  const myVault = path.join(home, 'Notes', 'Scratch Notes');
+  put(myVault, {
+    'Start Here.md': '# My notes\n\nMy own take: [[Pointers]].\n',
+    'Pointers.md': '# Pointers, in my words\n\nAn address, and a promise about what lives there.\n',
+  });
+
   // fake secret-tool: hands back the test password, like the GNOME keyring would
   const bin = path.join(home, 'bin');
   fs.mkdirSync(bin);
   fs.writeFileSync(path.join(bin, 'secret-tool'), `#!/bin/sh\nif [ "$1" = lookup ]; then printf '%s' '${PASSWORD.replace(/\s/g, '')}'; exit 0; fi\ncat > /dev/null; exit 0\n`, { mode: 0o755 });
-  return { home, proj, bin, patch, fakeVault };
+  return { home, proj, bin, patch, fakeVault, cVault, myVault };
 }
 
 function mailFixtures(patch) {
@@ -245,11 +259,13 @@ async function startIrc({ account = 'joshm', password = PASSWORD.replace(/\s/g, 
   return { port, said, logins, close: () => new Promise((r) => { for (const c of clients) c.destroy(); server.close(r); }) };
 }
 
-function writeConfig(home, { imapPort, smtpPort, ircPort, vault }) {
+function writeConfig(home, { imapPort, smtpPort, ircPort, vault, vaults = [] }) {
   const dir = path.join(home, '.config', 'cpp-path-workbench');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
-    workspace: path.join(home, 'cpp-path'), vault, keymap: 'standard',
+    workspace: path.join(home, 'cpp-path'), keymap: 'standard',
+    // an old-style "vault" stays readable; the list is what the app uses now
+    vault, vaults: [...(vault ? [{ path: vault }] : []), ...vaults],
     build: { jobs: 4 },
     irc: { host: '127.0.0.1', port: ircPort, tls: false, nick: 'joshm', login: 'sasl', account: 'joshm', certFile: '', channels: ['#c++-basic'] },
     mail: { name: 'Josh McFerran', address: ADDRESS, imapHost: '127.0.0.1', imapPort, imapSecure: false, smtpHost: '127.0.0.1', smtpPort, smtpSecure: false },

@@ -1,5 +1,6 @@
-// The window: menu bar, sidebar, centre tabs, bottom panel, status line and
-// the function-key bar, plus the command registry every menu and key uses.
+// The window: menu bar, toolbar, sidebar, centre tabs, bottom panel, status
+// line and the function-key bar, plus the command registry every menu, key,
+// toolbar button and the command palette use.
 
 import { h, clear, popupMenu, closeMenu, dialog } from './ui.js';
 import { call } from './rpc.js';
@@ -117,10 +118,47 @@ function subItem(it) {
   return { label: it.label || c.title, keys: c.keys[0] || '', run: () => runCommand(c.id, ...(it.args || [])), disabled: c.when && !c.when() };
 }
 
+// ------------------------------------------------------------------ toolbar
+// One row of the things you do all the time, with their keys in the
+// tooltips. Items: { cmd, label, args, title } | { sep: true } |
+// { el: () => Element } for something custom (the C / C++ switch) |
+// { menu: [...items], label } for a drop-down.
+export const toolbar = {
+  el: null, items: [],
+  build(items) {
+    this.items = items;
+    clear(this.el);
+    for (const it of items) {
+      if (it.sep) { this.el.append(h('span', { class: 'tb-sep', 'aria-hidden': 'true' })); continue; }
+      if (it.spring) { this.el.append(h('span', { class: 'tb-spring' })); continue; }
+      if (it.el) { this.el.append(it.el()); continue; }
+      const c = it.cmd ? commands.get(it.cmd) : null;
+      const keys = c && c.keys[0] ? ` (${c.keys[0]})` : '';
+      const b = h('button', { type: 'button', class: 'tb-btn' + (it.primary ? ' primary' : ''), title: (it.title || (c && c.title) || it.label) + keys, 'data-cmd': it.cmd || undefined },
+        it.icon ? h('span', { class: 'tb-icon', 'aria-hidden': 'true' }, it.icon) : null, h('span', { class: 'tb-label' }, it.label + (it.menu ? ' ▾' : '')));
+      if (it.menu) {
+        b.addEventListener('click', () => {
+          const r = b.getBoundingClientRect();
+          popupMenu(it.menu.map(subItem), r.left, r.bottom);
+        });
+      } else b.addEventListener('click', () => runCommand(it.cmd, ...(it.args || [])));
+      this.el.append(b);
+    }
+  },
+  toggle(on) {
+    const hide = on === undefined ? !document.documentElement.classList.contains('no-toolbar') : !on;
+    document.documentElement.classList.toggle('no-toolbar', hide);
+    call('state.set', { key: 'ui.toolbar', value: !hide });
+    window.dispatchEvent(new Event('resize'));
+  },
+};
+
 // ------------------------------------------------------------------ sidebar
 export const sidebar = {
   el: null, head: null, body: null, views: new Map(), current: null,
   add(view) { this.views.set(view.id, { ...view, el: null }); },
+  // Re-draw a view that's already been shown (its data changed)
+  refresh(id) { const v = this.views.get(id); if (v && v.el) { clear(v.el); v.render(v.el); if (!v.el.hidden && v.onShow) v.onShow(); } },
   show(id) {
     const v = this.views.get(id);
     if (!v) return;
@@ -136,7 +174,8 @@ export const sidebar = {
   buildHead() {
     clear(this.head);
     for (const v of this.views.values()) {
-      const b = h('button', { type: 'button', 'data-id': v.id, title: v.title }, v.short || v.title);
+      const c = v.cmd ? commands.get(v.cmd) : null;
+      const b = h('button', { type: 'button', 'data-id': v.id, title: v.title + (c && c.keys[0] ? ` (${c.keys[0]})` : '') }, v.short || v.title);
       b.addEventListener('click', () => this.show(v.id));
       this.head.append(b);
     }
@@ -317,6 +356,7 @@ export const status = {
     if (!it) {
       it = h(onclick ? 'button' : 'span', { class: 'st-item', type: onclick ? 'button' : undefined });
       it.dataset.order = order;
+      it.dataset.key = key;
       if (onclick) it.addEventListener('click', onclick);
       this.items.set(key, it);
       const zone = this.el.querySelector(side === 'left' ? '.st-left' : '.st-right');
@@ -331,8 +371,12 @@ export const status = {
 };
 
 // ------------------------------------------------------------------ build it
+// The empty desk: what you see with no tabs open (the start screen draws itself into it)
+export const desk = { el: null };
+
 export function buildShell(root, fkeys) {
   const menubarEl = h('nav', { class: 'menubar', 'aria-label': 'Menu' });
+  const toolbarEl = h('div', { class: 'toolbar-main', role: 'toolbar', 'aria-label': 'Toolbar' });
   const sideHead = h('div', { class: 'side-head', role: 'tablist' });
   const sideBody = h('div', { class: 'side-body' });
   const sideEl = h('aside', { class: 'sidebar frame' }, sideHead, sideBody);
@@ -342,7 +386,7 @@ export function buildShell(root, fkeys) {
   const paneDiv = h('div', { class: 'resizer v split-div', title: 'Drag to resize the two sides', hidden: true });
   const tabBody = h('div', { class: 'tabbody' }, paneL, paneDiv, paneR);
   const empty = h('div', { class: 'desk-empty' }, h('div', { class: 'desk-hint' },
-    h('p', {}, 'Nothing open.'), h('p', {}, 'F3 open a file · F1 guides · F4 C sandbox · F10 menu')));
+    h('p', {}, 'Nothing open.'), h('p', {}, 'F3 open a file · F1 guides · F4 sandbox · Ctrl+Shift+P commands')));
   const center = h('section', { class: 'center' }, tabBar, h('div', { class: 'tabbody-wrap' }, empty, tabBody));
   const panelBar = h('div', { class: 'panelbar' }, h('span', { class: 'ptab-spacer' }),
     h('button', { class: 'ptab-close', type: 'button', title: 'Hide panel (Ctrl+J)', onclick: () => panel.hide() }, '×'));
@@ -357,9 +401,11 @@ export function buildShell(root, fkeys) {
     return b;
   }));
   const main = h('div', { class: 'main' }, sideEl, sideResizer, h('div', { class: 'work' }, center, panelResizer, panelEl));
-  root.append(menubarEl, main, statusEl, fkeyEl);
+  root.append(menubarEl, toolbarEl, main, statusEl, fkeyEl);
 
   menubar.el = menubarEl;
+  toolbar.el = toolbarEl;
+  desk.el = empty;
   sidebar.el = sideEl; sidebar.head = sideHead; sidebar.body = sideBody;
   tabs.bar = tabBar; tabs.body = tabBody; tabs.panes = { left: paneL, right: paneR, div: paneDiv };
   // clicking inside a side makes it the focused one

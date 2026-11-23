@@ -1,9 +1,10 @@
 'use strict';
-// Compiling, running and checking C++ outside CMake: the stream every tool's
-// output goes through (into the Build panel and the Problems list), a single
-// file with g++, running a program in a terminal while watching for
-// sanitizer reports, the C++ sandbox and its assembly view, clang-tidy,
-// cppcheck, and the DOS retro track (Open Watcom + DOSBox-X).
+// Compiling, running and checking C and C++ outside CMake: the stream every
+// tool's output goes through (into the Build panel and the Problems list), a
+// single file with gcc/g++ (or clang), gdb and Valgrind on it, running a
+// program in a terminal while watching for sanitizer reports, the C / C++
+// sandbox and its assembly view, clang-tidy, cppcheck, clang-format, and the
+// DOS retro track (Open Watcom + DOSBox-X).
 // CMake and CTest are in cmake.js.
 
 const { spawn, execFileSync } = require('child_process');
@@ -116,17 +117,66 @@ function sanitizerWatch(cwd, title) {
 
 // ------------------------------------------------------------------ one file, no CMake
 const CXX_EXT = /\.(cpp|cc|cxx|c\+\+|C)$/;
+const C_EXT = /\.c$/;
+const SOURCE_EXT = /\.(cpp|cc|cxx|c\+\+|C|c)$/;
 function outputFor(file) { return file.replace(/\.[^./]+$/, ''); }
+function isC(file) { return C_EXT.test(file); }
 
-async function buildSingle({ file }) {
+// The compiler and standard for a language, from Settings
+const C_COMPILERS = new Set(['gcc', 'clang']);
+const C_STDS = new Set(['c89', 'c99', 'c11', 'c17', 'c2x']);
+function toolchain(lang, { compiler, std } = {}) {
+  const b = config.get().build;
+  if (lang === 'c') return { lang, cc: pick(C_COMPILERS, compiler, b.cCompiler || 'gcc'), std: pick(C_STDS, std, b.cStd || 'c17') };
+  return { lang: 'cpp', cc: pick(COMPILERS, compiler, b.compiler || 'g++'), std: pick(STDS, std, b.std || 'c++20') };
+}
+const NO_SANITIZERS = (flags) => flags.filter((f) => !/^-fsanitize/.test(f));
+
+// variant: 'run' (Settings' sandbox flags: warnings + sanitizers),
+// 'debug' (the same, -O0 -g), 'valgrind' (no sanitizers: they and valgrind
+// don't mix), 'release' (-O2, no sanitizers)
+function singleArgs(file, variant = 'run') {
   const cfg = config.get();
-  if (!file || !(CXX_EXT.test(file) || file.endsWith('.c'))) throw new Error('This file is not in a CMake project, and it is not a .cpp file to compile on its own');
-  const isC = file.endsWith('.c');
-  const out = outputFor(file);
-  const compiler = isC ? 'gcc' : (cfg.build.compiler || 'g++');
-  const args = [isC ? '-std=c17' : `-std=${cfg.build.std || 'c++20'}`, ...cfg.build.sandboxFlags, '-o', out, file];
-  const r = await execStream({ cmd: compiler, args, cwd: path.dirname(file), title: `${compiler} ${path.basename(file)}` });
-  return { kind: 'single', output: out, ...r };
+  const tc = toolchain(isC(file) ? 'c' : 'cpp');
+  let flags = [...cfg.build.sandboxFlags];
+  if (variant === 'valgrind') flags = [...NO_SANITIZERS(flags).filter((f) => !/^-O/.test(f)), '-O0', '-g'];
+  if (variant === 'debug') flags = [...flags.filter((f) => !/^-O/.test(f)), '-O0', '-g'];
+  if (variant === 'release') flags = [...NO_SANITIZERS(flags).filter((f) => !/^-O|^-g$/.test(f)), '-O2'];
+  const out = outputFor(file) + (variant === 'valgrind' ? '.vg' : variant === 'release' ? '.release' : '');
+  const libs = tc.lang === 'c' ? ['-lm'] : [];
+  return { tc, out, args: [`-std=${tc.std}`, ...flags, '-o', out, file, ...libs] };
+}
+
+async function buildSingle({ file, variant }) {
+  if (!file || !SOURCE_EXT.test(file)) throw new Error('This file is not in a CMake project, and it is not a .c or .cpp file to compile on its own');
+  const { tc, out, args } = singleArgs(file, variant);
+  const r = await execStream({ cmd: tc.cc, args, cwd: path.dirname(file), title: `${tc.cc} ${path.basename(file)}` });
+  // exe, not output: execStream's result has the compiler's text in output
+  return { ...r, kind: 'single', exe: out, lang: tc.lang, output: undefined };
+}
+
+function q(s) { return `'${String(s).replace(/'/g, `'\\''`)}'`; }
+
+// gdb on one file, no CMake needed: compiled -O0 -g, stopped at your line
+async function debugSingle({ file, line, args = '' }) {
+  const r = await buildSingle({ file, variant: 'debug' });
+  if (r.code !== 0) return { ok: false, ...r, output: undefined };
+  const stop = line ? `break ${file}:${line}` : 'break main';
+  const argv = ['gdb', '-q', '-ex', 'set pagination off', '-ex', stop, '-ex', 'run', '--args', r.exe, ...String(args).split(/\s+/).filter(Boolean)];
+  const term = pty.open({ cwd: path.dirname(file), title: `gdb: ${path.basename(r.exe)}`, argv, env: { ASAN_OPTIONS: 'detect_leaks=0' } });
+  return { ok: true, ...r, terminal: term, target: path.basename(r.exe), breakpoint: stop.slice(6) };
+}
+
+// Valgrind's memcheck: leaks, uninitialised reads and bad frees, the classic
+// way (note 4.03's other half). Built without the sanitizers, which can't
+// share a process with valgrind.
+const VALGRIND = ['valgrind', '--leak-check=full', '--show-leak-kinds=definite,indirect', '--track-origins=yes', '--error-exitcode=99'];
+async function valgrindSingle({ file, args = '' }) {
+  if (!which('valgrind')) throw new Error(`Valgrind is not installed (${hint('valgrind')})`);
+  const r = await buildSingle({ file, variant: 'valgrind' });
+  if (r.code !== 0) return { ok: false, ...r, output: undefined };
+  const term = runProgram({ cwd: path.dirname(file), command: `${VALGRIND.join(' ')} ${q(r.exe)} ${args}`.trim(), title: `valgrind: ${path.basename(file)}` });
+  return { ok: true, ...r, terminal: term, target: path.basename(r.exe) };
 }
 
 // ------------------------------------------------------------------ the sandbox
@@ -136,38 +186,43 @@ const OPTS = new Set(['-O0', '-O1', '-O2', '-O3', '-Os']);
 function sandboxDir() { return path.dirname(config.dataPath('sandbox', 'x')); }
 function pick(set, v, fallback) { return set.has(v) ? v : fallback; }
 
-async function sandboxRun({ source, compiler, std }) {
+// The sandbox has one scratch file per language: scratch.cpp and scratch.c.
+function sandboxFileFor(lang) { return path.join(sandboxDir(), lang === 'c' ? 'scratch.c' : 'scratch.cpp'); }
+
+async function sandboxRun({ source, compiler, std, lang = 'cpp', tool }) {
   const cfg = config.get();
   const dir = sandboxDir();
-  const file = path.join(dir, 'scratch.cpp');
+  const tc = toolchain(lang === 'c' ? 'c' : 'cpp', { compiler, std });
+  const file = sandboxFileFor(tc.lang);
   fs.writeFileSync(file, source);
-  const cxx = pick(COMPILERS, compiler, cfg.build.compiler || 'g++');
-  const s = pick(STDS, std, cfg.build.std || 'c++20');
-  const out = path.join(dir, 'scratch');
-  const res = await execStream({ cmd: cxx, args: [`-std=${s}`, ...cfg.build.sandboxFlags, '-o', out, file], cwd: dir, title: `sandbox: ${cxx} -std=${s}` });
-  if (res.code !== 0) return { ok: false, ...res, file, output: undefined };
-  const term = runProgram({ cwd: dir, command: './scratch', title: 'sandbox: scratch' });
-  return { ok: true, ...res, file, output: undefined, terminal: term };
+  const vg = tool === 'valgrind';
+  if (vg && !which('valgrind')) throw new Error(`Valgrind is not installed (${hint('valgrind')})`);
+  const flags = vg ? [...NO_SANITIZERS(cfg.build.sandboxFlags).filter((f) => !/^-O/.test(f)), '-O0', '-g'] : cfg.build.sandboxFlags;
+  const out = path.join(dir, vg ? 'scratch-vg' : 'scratch');
+  const libs = tc.lang === 'c' ? ['-lm'] : [];
+  const res = await execStream({ cmd: tc.cc, args: [`-std=${tc.std}`, ...flags, '-o', out, file, ...libs], cwd: dir, title: `sandbox: ${tc.cc} -std=${tc.std}` });
+  if (res.code !== 0) return { ok: false, ...res, file, lang: tc.lang, output: undefined };
+  const term = runProgram({ cwd: dir, command: vg ? `${VALGRIND.join(' ')} ./scratch-vg` : './scratch', title: vg ? 'sandbox: valgrind' : 'sandbox: scratch' });
+  return { ok: true, ...res, file, lang: tc.lang, output: undefined, terminal: term };
 }
 
 // What the compiler made of it: the assembly, Compiler Explorer style.
 // Directives, debug sections and unused labels are dropped, names are
 // demangled, and each instruction remembers which source line it came from
 // (from the .loc directives -g leaves behind).
-async function sandboxAsm({ source, compiler, std, opt }) {
-  const cfg = config.get();
+async function sandboxAsm({ source, compiler, std, opt, lang = 'cpp' }) {
   const dir = sandboxDir();
-  const file = path.join(dir, 'scratch-asm.cpp');
+  const tc = toolchain(lang === 'c' ? 'c' : 'cpp', { compiler, std });
+  const name = tc.lang === 'c' ? 'scratch-asm.c' : 'scratch-asm.cpp';
+  const file = path.join(dir, name);
   fs.writeFileSync(file, source);
-  const cxx = pick(COMPILERS, compiler, cfg.build.compiler || 'g++');
-  const s = pick(STDS, std, cfg.build.std || 'c++20');
   const o = pick(OPTS, opt, '-O1');
-  const r = await execStream({ cmd: cxx, args: [`-std=${s}`, o, '-g', '-S', '-masm=intel', '-fno-asynchronous-unwind-tables', '-fno-dwarf2-cfi-asm', '-o', '-', file],
-    cwd: dir, title: `asm: ${cxx} ${o}`, quiet: true });
+  const r = await execStream({ cmd: tc.cc, args: [`-std=${tc.std}`, o, '-g', '-S', '-masm=intel', '-fno-asynchronous-unwind-tables', '-fno-dwarf2-cfi-asm', '-o', '-', file],
+    cwd: dir, title: `asm: ${tc.cc} ${o}`, quiet: true });
   if (r.code !== 0) return { ok: false, problems: r.problems, text: r.output, lines: [] };
   let asm = r.output;
-  try { asm = execFileSync('c++filt', [], { input: asm, maxBuffer: 64 * 1024 * 1024 }).toString(); } catch (e) { /* mangled names, then */ }
-  return { ok: true, problems: r.problems, lines: filterAsm(asm, 'scratch-asm.cpp'), flags: `${cxx} -std=${s} ${o} -masm=intel` };
+  if (tc.lang === 'cpp') { try { asm = execFileSync('c++filt', [], { input: asm, maxBuffer: 64 * 1024 * 1024 }).toString(); } catch (e) { /* mangled names, then */ } }
+  return { ok: true, problems: r.problems, lines: filterAsm(asm, name), flags: `${tc.cc} -std=${tc.std} ${o} -masm=intel` };
 }
 
 function filterAsm(text, mainName) {
@@ -231,7 +286,8 @@ async function tidy({ file }) {
   if (db && fs.existsSync(db)) { try { inDb = fs.readFileSync(db, 'utf8').includes(JSON.stringify(file).slice(1, -1)); } catch (e) { /* no */ } }
   const ownConfig = findUp(path.dirname(file), '.clang-tidy', root || config.HOME);
   const checks = cfg.tidy.checks || (ownConfig ? '' : TIDY_CHECKS);
-  const args = ['--quiet', ...(checks ? [`--checks=${checks}`] : []), ...(inDb ? ['-p', path.dirname(db), file] : [file, '--', `-std=${cfg.build.std || 'c++20'}`])];
+  const std = isC(file) ? toolchain('c').std : (cfg.build.std || 'c++20');
+  const args = ['--quiet', ...(checks ? [`--checks=${checks}`] : []), ...(inDb ? ['-p', path.dirname(db), file] : [file, '--', `-std=${std}`, ...(isC(file) ? ['-xc'] : [])])];
   const r = await execStream({ cmd: 'clang-tidy', args, cwd: root || path.dirname(file), title: `clang-tidy ${path.basename(file)}`, source: 'clang-tidy' });
   // clang-tidy also reports the compiler's own errors; and exits 1 only for those
   return { ...r, output: undefined, clean: !r.problems.some((p) => p.file === file) };
@@ -239,8 +295,9 @@ async function tidy({ file }) {
 
 async function cppcheck({ file }) {
   const cfg = config.get();
-  const std = (cfg.build.std || 'c++20').replace('c++23', 'c++20');   // cppcheck knows up to c++20 for sure
-  const args = ['--enable=warning,style,performance,portability', `--std=${std}`, '--inline-suppr', '--quiet',
+  // cppcheck knows up to c++20 and c11 for sure
+  const std = isC(file) ? (/^c(89|99)$/.test(toolchain('c').std) ? toolchain('c').std : 'c11') : (cfg.build.std || 'c++20').replace('c++23', 'c++20');
+  const args = ['--enable=warning,style,performance,portability', `--std=${std}`, ...(isC(file) || /\.h$/.test(file) && config.get().language === 'c' ? ['--language=c'] : []), '--inline-suppr', '--quiet',
     '--template={file}:{line}:{column}: {severity}: {message} [{id}]', file];
   const r = await execStream({ cmd: 'cppcheck', args, cwd: path.dirname(file), title: `cppcheck ${path.basename(file)}`, source: 'cppcheck' });
   return { ...r, output: undefined, clean: !r.problems.length };
@@ -286,9 +343,24 @@ function dosRun({ exe }) {
   return true;
 }
 
+// ------------------------------------------------------------------ formatting
+// clang-format on its own, for when clangd is off or still starting: it
+// finds the project's .clang-format from the file's folder, like clangd.
+function format({ file, text }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('clang-format', [`--assume-filename=${file}`, '--fallback-style=LLVM'], { cwd: path.dirname(file) });
+    let out = '', err = '';
+    child.stdout.on('data', (b) => { out += b; });
+    child.stderr.on('data', (b) => { err += b; });
+    child.on('error', (e) => reject(new Error(e.code === 'ENOENT' ? `clang-format is not installed (${hint('clang-format')})` : e.message)));
+    child.on('close', (code) => (code === 0 ? resolve({ text: out }) : reject(new Error(err.trim() || `clang-format exited with ${code}`))));
+    child.stdin.end(text);
+  });
+}
+
 // ------------------------------------------------------------------ what's installed
 function tools() {
-  const names = ['g++', 'clang++', 'cmake', 'ctest', 'ninja', 'gdb', 'clangd', 'clang-tidy', 'clang-format', 'cppcheck', 'valgrind', 'git', 'rg'];
+  const names = ['gcc', 'g++', 'clang', 'clang++', 'cmake', 'ctest', 'ninja', 'gdb', 'clangd', 'clang-tidy', 'clang-format', 'cppcheck', 'valgrind', 'git', 'rg'];
   const out = {};
   for (const n of names) out[n] = !!which(n);
   out['secret-tool'] = !!which('secret-tool');
@@ -301,6 +373,9 @@ function init(a) {
   api = a;
   a.register('build.cancel', cancel);
   a.register('build.single', buildSingle);
+  a.register('build.debugSingle', debugSingle);
+  a.register('build.valgrind', valgrindSingle);
+  a.register('format.file', format);
   a.register('build.runProgram', (p) => runProgram(p));
   a.register('build.tools', tools);
   // what to install a list of tools with, on this system
@@ -310,7 +385,7 @@ function init(a) {
   });
   a.register('sandbox.run', sandboxRun);
   a.register('sandbox.asm', sandboxAsm);
-  a.register('sandbox.dir', () => ({ dir: sandboxDir() }));
+  a.register('sandbox.dir', () => ({ dir: sandboxDir(), files: { c: sandboxFileFor('c'), cpp: sandboxFileFor('cpp') } }));
   a.register('analyze.tidy', tidy);
   a.register('analyze.cppcheck', cppcheck);
   a.register('dos.status', () => { const t = dosTools(); return { owcc: t.owcc, watcom: t.watcom, dosbox: t.dosbox }; });
@@ -318,4 +393,4 @@ function init(a) {
   a.register('dos.run', dosRun);
 }
 
-module.exports = { init, execStream, runProgram, buildSingle, filterAsm, which, hint, CXX_EXT };
+module.exports = { init, execStream, runProgram, buildSingle, debugSingle, valgrindSingle, filterAsm, which, hint, toolchain, CXX_EXT, C_EXT, SOURCE_EXT };
