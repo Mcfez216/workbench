@@ -15,7 +15,7 @@ switch.
 
 It's the Kernel Path Workbench rebuilt around the CPP-Path vault. The two
 install side by side: different name, icon, settings folder and window.
-Ubuntu (also in WSL on Windows) and Fedora.
+**Windows** (10 and 11, one double-click), Ubuntu and Fedora.
 
 | Part | What it does |
 |---|---|
@@ -57,8 +57,33 @@ retro look.
 
 ## Install
 
+**Windows:** double-click **`Install on Windows.cmd`** in the app's folder.
+It runs inside WSL (Ubuntu on Windows), so the sanitizers, Valgrind, gdb and
+the terminal work exactly as on Linux, and you never have to type a Linux
+command. It asks before each big step:
+
+1. turns on WSL if it's off (administrator rights and one restart; it
+   carries on by itself when you sign back in) and updates it, for WSLg;
+2. uses your Ubuntu, or installs Ubuntu 24.04 (you pick a Linux user name
+   and password);
+3. copies the app into your Linux home, `~/cpp-path-workbench` (much faster
+   builds than on `C:`);
+4. installs the compilers and tools, Node.js and the app's packages inside
+   Ubuntu (`scripts/wsl-setup.sh`; sudo asks for your Linux password);
+5. puts **C++ Path Workbench** in the Start menu and on the desktop.
+
+The shortcut starts it with no console window: in its own window through
+WSLg (Windows 11, or 10 with the current WSL), or in your Windows browser
+when there's no WSLg. Start menu → *C++ Path Workbench (in your browser)*
+always uses the browser. To update, download the new version and run the
+installer again (your settings, code and vaults are untouched). *Uninstall
+C++ Path Workbench shortcuts* removes what it put on Windows. If it won't
+start, the reason pops up, and the details are in
+`~/.local/state/cpp-path-workbench/launch.log` in Ubuntu. Your vault can stay
+in Documents or OneDrive: the app finds it there.
+
 It runs on Ubuntu 24.04 (22.04 should work too, untested), including
-Ubuntu in WSL on Windows, and on Fedora. Node.js 22.12 or newer is needed; Ubuntu's own `nodejs` package is
+Ubuntu in WSL on Windows (the installer above does all of this for you), and on Fedora. Node.js 22.12 or newer is needed; Ubuntu's own `nodejs` package is
 older, so the setup script can add NodeSource's.
 
 **Ubuntu**, or Ubuntu in WSL:
@@ -138,8 +163,9 @@ Password** (keyring again, `service neomutt user <address>`, the same entry
 NeoMutt and the Kernel Path Workbench use).
 
 The tests run on Ubuntu 24.04; the WSL parts (WSLg window, keyring prompt,
-`wslview`, the Windows-side vault search on a real `C:` drive) are written
-for WSL but were checked on plain Ubuntu, with WSL simulated.
+`wslview`, the Windows-side vault search on a real `C:` drive, the Windows
+installer and launcher in `windows/`) are written for WSL but were checked on
+plain Ubuntu, with WSL simulated.
 
 ## Split view
 
@@ -193,6 +219,9 @@ server/              the backend (Node), bound to 127.0.0.1
   lsp.js             one clangd per project, messages passed through untouched
   secrets.js         secret-tool (GNOME keyring)
   distro.js          Ubuntu or Fedora, WSL or not: install hints, the Windows-side vault search
+windows/             Install.ps1 (WSL, Ubuntu, the app, shortcuts) and Launch.vbs (no console window);
+                     "Install on Windows.cmd" runs Install.ps1. scripts/wsl-setup.sh and
+                     scripts/wsl-launch.sh are their Linux halves
 web/src/             the window: CodeMirror 6, xterm.js, markdown-it, bundled by esbuild
   lang.js            the C / C++ switch          palette.js   the command palette
   start.js           the start screen            newstuff.js  New file / New project dialogs

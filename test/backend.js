@@ -625,6 +625,33 @@ async function test(name, fn) {
     });
   }
 
+  await test('windows: the WSL launcher picks the window or the browser, and says what is missing', async () => {
+    const { execFileSync, spawnSync } = require('child_process');
+    const script = path.join(__dirname, '..', 'scripts', 'wsl-launch.sh');
+    const env = { ...process.env, HOME };
+    delete env.DISPLAY; delete env.WAYLAND_DISPLAY;
+    const check = (...a) => execFileSync('bash', [script, ...a, '--check'], { env, encoding: 'utf8' }).trim();
+    const electron = fs.existsSync(path.join(__dirname, '..', 'node_modules', 'electron', 'dist', 'electron'));
+    if (!fs.existsSync('/mnt/wslg')) assert.strictEqual(check(), 'browser', 'no WSLg: the browser');
+    assert.strictEqual(execFileSync('bash', [script, '--check'], { env: { ...env, WAYLAND_DISPLAY: 'wayland-0' }, encoding: 'utf8' }).trim(), electron ? 'window' : 'browser');
+    assert.strictEqual(check('window'), 'window');
+    assert.strictEqual(check('browser'), 'browser');
+    // a copy without its packages says to run the installer again
+    const app = fs.mkdtempSync(path.join(HOME, 'app-'));
+    fs.mkdirSync(path.join(app, 'scripts'));
+    fs.copyFileSync(script, path.join(app, 'scripts', 'wsl-launch.sh'));
+    const r = spawnSync('bash', [path.join(app, 'scripts', 'wsl-launch.sh')], { env: { ...env, PATH: process.env.PATH.split(':').filter((d) => !fs.existsSync(path.join(d, 'powershell.exe'))).join(':') }, encoding: 'utf8' });
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stderr, /Run 'Install on Windows' again/);
+    fs.rmSync(app, { recursive: true });
+    // the Windows files keep Windows line endings and plain ASCII (Windows PowerShell 5.1 reads them as ANSI)
+    for (const f of ['windows/Install.ps1', 'windows/Launch.vbs', 'Install on Windows.cmd']) {
+      const text = fs.readFileSync(path.join(__dirname, '..', f), 'latin1');
+      assert.ok(!/[^\r]\n/.test(text), `${f}: CRLF line endings`);
+      assert.ok(!/[^\x00-\x7f]/.test(text), `${f}: ASCII only`);
+    }
+  });
+
   await test('state: remembers values', async () => {
     await call('state.set', { key: 'test.x', value: { a: 1 } });
     assert.deepStrictEqual(await call('state.get', { key: 'test.x' }), { a: 1 });
