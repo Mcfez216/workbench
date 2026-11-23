@@ -1,0 +1,56 @@
+{
+  "name": "cpp-path-workbench",
+  "version": "0.1.0",
+  "description": "One window for learning C++: editor with clangd, CMake, CTest, gdb, sanitizers, clang-tidy and cppcheck, a C++ sandbox with an assembly view, a competitive-programming judge, terminal, git, guides, IRC, mail and music.",
+  "private": true,
+  "license": "GPL-2.0-only",
+  "main": "main.js",
+  "scripts": {
+    "preinstall": "node scripts/check-node.js",
+    "start": "electron .",
+    "prestart": "node scripts/check-node.js && node scripts/build-web.js",
+    "web": "node server/index.js --web",
+    "preweb": "node scripts/check-node.js && node scripts/build-web.js",
+    "build": "node scripts/build-web.js",
+    "watch": "node scripts/build-web.js --watch",
+    "test": "node test/run-all.js",
+    "pretest": "node scripts/build-web.js",
+    "smoke": "electron test/electron-smoke.js",
+    "install-desktop": "sh scripts/install-desktop.sh",
+    "setup-ubuntu": "bash scripts/setup-ubuntu.sh"
+  },
+  "dependencies": {
+    "imapflow": "2.5.2",
+    "irc-framework": "4.14.0",
+    "mailparser": "3.9.40",
+    "nodemailer": "10.1.2",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@codemirror/autocomplete": "6.20.3",
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-cpp": "6.0.3",
+    "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/legacy-modes": "6.5.5",
+    "@codemirror/lint": "6.9.7",
+    "@codemirror/lsp-client": "6.3.0",
+    "@codemirror/search": "6.7.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.14",
+    "@lezer/highlight": "1.2.5",
+    "@replit/codemirror-emacs": "6.1.0",
+    "@replit/codemirror-vim": "6.4.0",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "electron": "44.8.0",
+    "esbuild": "0.28.2",
+    "hoodiecrow-imap": "3.3.1",
+    "markdown-it": "15.0.3",
+    "smtp-server": "3.19.23"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "desktopName": "cpp-path-workbench.desktop"
+}
