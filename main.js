@@ -61,7 +61,7 @@ async function createWindow() {
 
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 800, minHeight: 500,
-    backgroundColor: '#0000AA', title: 'C++ Path Workbench', show: false,
+    backgroundColor: '#1f2c5a', title: 'C++ Path Workbench', show: false,
     icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true, spellcheck: true },
   });

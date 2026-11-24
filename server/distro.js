@@ -59,6 +59,7 @@ const PKG = {
   python3: { fedora: 'python3', debian: 'python3' },
   'dosbox-x': { fedora: 'dosbox-x', debian: 'dosbox-x' },
   wslview: { fedora: 'wslu', debian: 'wslu' },
+  'libclang-rt': { fedora: 'compiler-rt', debian: 'libclang-rt-dev' },
 };
 
 function pkgFor(tool) {

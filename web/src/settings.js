@@ -5,7 +5,8 @@
 import { call } from './rpc.js';
 import { h, clear, toast, dialog } from './ui.js';
 import { tabs, command, runCommand } from './layout.js';
-import { THEMES, applyTheme, themeName } from './themes.js';
+import { THEMES, PALETTES, applyTheme, themeName, usesPixelFont } from './themes.js';
+import { LANGS } from './lang.js';
 
 let onSaved = () => {};
 export function onSettingsSaved(fn) { onSaved = fn; }
@@ -35,11 +36,29 @@ async function openSettings() {
       el.append(page);
       const c = await call('config.get');
       const info = await call('app.info');
+      const look = { palette: 'soft', retroFont: 'vga', ...(c.look || {}) };
+      const sizes = () => (usesPixelFont(f.theme.value, f.retroFont.value) ? [[16, '16px'], [32, '32px (big)']] : [[13, '13px'], [14, '14px'], [15, '15px'], [16, '16px'], [18, '18px'], [20, '20px'], [24, '24px']]);
       const f = {
         theme: choice(Object.entries(THEMES).map(([k, t]) => [k, t.label]), c.theme),
-        fontSize: choice([[16, '16px'], [32, '32px (big)']].concat(THEMES[c.theme]?.retro ? [] : [[14, '14px'], [18, '18px'], [20, '20px']]), c.fontSize),
+        palette: choice(Object.entries(PALETTES), look.palette),
+        retroFont: choice([['vga', 'VGA pixel font'], ['modern', 'Smooth modern font']], look.retroFont),
+        fontSize: null,
         keymap: choice([['vim', 'Vim'], ['standard', 'Standard (Ctrl+S...)'], ['emacs', 'Emacs']], c.keymap),
-        workspace: text(c.workspace, { placeholder: '~/cpp-path' }), vault: text(c.vault, { placeholder: '~/Obsidian/Programming/CPP-Path' }),
+        language: choice([['c', 'C'], ['cpp', 'C++']], c.language || 'cpp'),
+        cCompiler: choice(LANGS.c.compilers.map((x) => [x, x]), c.build.cCompiler || 'gcc'),
+        cStd: choice(LANGS.c.stds, c.build.cStd || 'c17'),
+        autosave: check(c.editor && c.editor.autosave), wrap: check(c.editor && c.editor.wrap), snippets: check(!c.editor || c.editor.snippets !== false),
+        banned: check(!c.editor || c.editor.banned !== false),
+        quiet: check(c.comfort && c.comfort.quiet), reduceMotion: check(c.comfort && c.comfort.reduceMotion),
+        spacing: choice([['normal', 'Normal'], ['relaxed', 'Relaxed']], (c.comfort && c.comfort.spacing) || 'normal'),
+        readingFont: choice([['mono', 'The code font'], ['readable', 'A reading font']], (c.comfort && c.comfort.readingFont) || 'mono'),
+        breakReminder: choice([[0, 'Never'], [30, 'After 30 min'], [45, 'After 45 min'], [60, 'After an hour'], [90, 'After 90 min']], (c.comfort && +c.comfort.breakReminder) || 0),
+        whereOnStart: check(!c.comfort || c.comfort.whereOnStart !== false),
+        focusMinutes: choice([[10, '10 min'], [25, '25 min'], [45, '45 min']], (c.focus && c.focus.minutes) || 25),
+        breakMinutes: choice([[3, '3 min'], [5, '5 min'], [10, '10 min'], [15, '15 min']], (c.focus && c.focus.breakMinutes) || 5),
+        exercisesDir: text(c.exercisesDir, { placeholder: '~/workbench-exercises' }),
+        workspace: text(c.workspace, { placeholder: '~/cpp-path' }),
+        folders: h('textarea', { class: 'field', rows: 3, spellcheck: 'false', placeholder: 'One folder per line, e.g. ~/src/c-exercises' }, (c.folders || []).join('\n')),
         buildType: choice([['Debug', 'Debug (sanitizers on)'], ['RelWithDebInfo', 'RelWithDebInfo'], ['Release', 'Release']], c.build.buildType),
         jobs: text(c.build.jobs, { type: 'number' }),
         compiler: choice([['g++', 'g++'], ['clang++', 'clang++']], c.build.compiler),
@@ -59,26 +78,51 @@ async function openSettings() {
         keyring: text(c.mail.keyringService), fetch: text(c.mail.fetchCount, { type: 'number' }),
         musicUrl: text(c.music.url),
       };
-      // preview the theme straight away
-      f.theme.addEventListener('change', () => applyTheme(f.theme.value, +f.fontSize.value));
+      f.fontSize = choice(sizes(), c.fontSize);
+      const sizeHost = h('div', {}, f.fontSize);
+      const resize = () => { const v = +f.fontSize.value; const opts = sizes(); const keep = opts.some(([x]) => x === v) ? v : opts.reduce((a, [x]) => (Math.abs(x - v) < Math.abs(a - v) ? x : a), opts[0][0]); f.fontSize = choice(opts, keep); f.fontSize.addEventListener('change', preview); sizeHost.replaceChildren(f.fontSize); };
+      // preview the look straight away
+      const preview = () => applyTheme(f.theme.value, +f.fontSize.value, { palette: f.palette.value, retroFont: f.retroFont.value });
+      for (const x of [f.theme, f.palette, f.retroFont]) x.addEventListener('change', () => { resize(); preview(); });
+      f.fontSize.addEventListener('change', preview);
+      // the vaults: a row each, name and folder, removable; Add puts a new row
+      const vaultRows = h('div', { class: 'vault-rows' });
+      const addVaultRow = (v = { name: '', path: '' }) => {
+        const name = h('input', { class: 'field', type: 'text', value: v.name || '', placeholder: 'Name', spellcheck: 'false', 'aria-label': 'Vault name' });
+        const where = h('input', { class: 'field', type: 'text', value: v.path || '', placeholder: '~/Obsidian/CPP-Path', spellcheck: 'false', 'aria-label': 'Vault folder' });
+        const row = h('div', { class: 'vault-edit' }, name, where, h('button', { class: 'btn small', type: 'button', title: 'Remove (nothing is deleted)', onclick: () => row.remove() }, '×'));
+        row.read = () => ({ name: name.value.trim(), path: where.value.trim() });
+        vaultRows.append(row);
+        return row;
+      };
+      (c.vaults || []).forEach((v) => addVaultRow(v));
+      if (!(c.vaults || []).length) addVaultRow();
       const words = (s) => s.value.trim() ? s.value.trim().split(/\s+/) : [];
-      const collect = () => ({
-        ...c, theme: f.theme.value, fontSize: +f.fontSize.value, keymap: f.keymap.value,
-        workspace: f.workspace.value.trim(), vault: f.vault.value.trim() || null,
-        build: { ...c.build, buildType: f.buildType.value, jobs: Math.max(1, +f.jobs.value || 4), compiler: f.compiler.value, std: f.std.value, sandboxFlags: words(f.sandboxFlags) },
-        judge: { ...c.judge, timeLimitMs: Math.max(100, +f.judgeTl.value || 2000), flags: words(f.judgeFlags) },
-        tidy: { ...c.tidy, checks: f.tidyChecks.value.trim() },
-        clangd: { ...c.clangd, enabled: f.clangd.checked, args: words(f.clangdArgs) },
-        irc: { ...c.irc, host: f.ircHost.value.trim(), port: +f.ircPort.value || 6697, tls: f.ircTls.checked, nick: f.ircNick.value.trim(),
+      const collect = (latest) => ({
+        ...latest, theme: f.theme.value, fontSize: +f.fontSize.value, keymap: f.keymap.value,
+        look: { ...latest.look, palette: f.palette.value, retroFont: f.retroFont.value },
+        language: f.language.value,
+        editor: { ...latest.editor, autosave: f.autosave.checked, wrap: f.wrap.checked, snippets: f.snippets.checked, banned: f.banned.checked },
+        comfort: { ...latest.comfort, quiet: f.quiet.checked, reduceMotion: f.reduceMotion.checked, spacing: f.spacing.value, readingFont: f.readingFont.value, breakReminder: +f.breakReminder.value, whereOnStart: f.whereOnStart.checked },
+        focus: { ...latest.focus, minutes: +f.focusMinutes.value, breakMinutes: +f.breakMinutes.value },
+        exercisesDir: f.exercisesDir.value.trim() || '~/workbench-exercises',
+        workspace: f.workspace.value.trim(),
+        folders: f.folders.value.split('\n').map((x) => x.trim()).filter(Boolean),
+        vaults: [...vaultRows.children].map((r) => r.read()).filter((v) => v.path).map((v) => ({ path: v.path, ...(v.name ? { name: v.name } : {}) })),
+        build: { ...latest.build, buildType: f.buildType.value, jobs: Math.max(1, +f.jobs.value || 4), compiler: f.compiler.value, std: f.std.value, cCompiler: f.cCompiler.value, cStd: f.cStd.value, sandboxFlags: words(f.sandboxFlags) },
+        judge: { ...latest.judge, timeLimitMs: Math.max(100, +f.judgeTl.value || 2000), flags: words(f.judgeFlags) },
+        tidy: { ...latest.tidy, checks: f.tidyChecks.value.trim() },
+        clangd: { ...latest.clangd, enabled: f.clangd.checked, args: words(f.clangdArgs) },
+        irc: { ...latest.irc, host: f.ircHost.value.trim(), port: +f.ircPort.value || 6697, tls: f.ircTls.checked, nick: f.ircNick.value.trim(),
           username: f.ircUser.value.trim(), realname: f.ircReal.value.trim(), login: f.ircLogin.value, account: f.ircAccount.value.trim(),
           certFile: f.ircCert.value.trim(), channels: words(f.ircChannels), autoConnect: f.ircAuto.checked },
-        mail: { ...c.mail, name: f.mailName.value.trim(), address: f.mailAddr.value.trim(), imapHost: f.imapHost.value.trim(), imapPort: +f.imapPort.value || 993,
+        mail: { ...latest.mail, name: f.mailName.value.trim(), address: f.mailAddr.value.trim(), imapHost: f.imapHost.value.trim(), imapPort: +f.imapPort.value || 993,
           smtpHost: f.smtpHost.value.trim(), smtpPort: +f.smtpPort.value || 465, keyringService: f.keyring.value.trim() || 'neomutt', fetchCount: +f.fetch.value || 200 },
         music: { url: f.musicUrl.value.trim() || 'https://music.youtube.com/' },
       });
       const save = async () => {
         try {
-          const saved = await call('config.save', collect());
+          const saved = await call('config.save', collect(await call('config.get')));
           Object.assign(c, saved);
           onSaved(saved);
           toast('Settings saved', 'ok');
@@ -107,16 +151,41 @@ async function openSettings() {
       showLogin();
       page.append(h('div', { class: 'form' },
         h('h2', {}, 'Look'),
-        ...field('Theme', f.theme, 'Blue installer, Turbo C++ and Norton Commander use the VGA font; it is only sharp at 16px or 32px.'),
-        ...field('Text size', f.fontSize),
-        ...field('Editor keys', f.keymap, 'Vim matches the vault\'s Neovim setup (:CMakeBuild, \\cb, \\ct...). Vim and Emacs keys get every key except F1-F10 and Ctrl+Shift combinations.'),
+        ...field('Theme', f.theme, 'The retro themes are the DOS screens you remember; Amber CRT is a monochrome monitor; Modern is a plain dark editor.'),
+        ...field('Retro colours', f.palette, 'Soft keeps the DOS look with toned-down colours that are easy on an LCD (no full-brightness blue and yellow). Authentic VGA is the real 1991 palette.'),
+        ...field('Retro font', f.retroFont, 'The VGA pixel font is only sharp at 16px or 32px. The modern font keeps the frames and colours and works at any size.'),
+        ...field('Text size', sizeHost),
+        ...field('Editor keys', f.keymap, 'Vim matches the vault\'s Neovim setup (:CMakeBuild, \\cb, \\ct, :A...). Vim and Emacs keys get every key except F1-F12 and Ctrl+Shift combinations.'),
+        h('h2', {}, 'Language'),
+        ...field('Working in', f.language, 'New files and projects, the sandbox and the judge start in this language; a .h header is treated as it. Switch any time from the toolbar or with Ctrl+Shift+J.'),
+        ...field('C compiler', f.cCompiler, 'For .c files outside CMake, the C sandbox and C judge solutions.'),
+        ...field('C standard', f.cStd),
+        h('h2', {}, 'Comfort'),
+        h('div', { class: 'full hint small' }, 'For brains that like things calm and predictable (ADHD, autism, tired, or just people). Everything stays where you put it; nothing here changes by itself.'),
+        ...field('Quiet', h('label', { class: 'check' }, f.quiet, ' messages wait in the inbox (✉ on the status line) instead of popping up; errors still show')),
+        ...field('Reduce motion', h('label', { class: 'check' }, f.reduceMotion, ' no blinking cursors, no animations, no smooth scrolling')),
+        ...field('Spacing', f.spacing, 'Relaxed: more room between lines and letters in guides, exercises and other pages.'),
+        ...field('Reading text in', f.readingFont, 'For guides and exercises (code stays in the code font). Uses Atkinson Hyperlegible, Lexend or OpenDyslexic if one is installed (Ubuntu: sudo apt install fonts-atkinson-hyperlegible, or download it).'),
+        ...field('Break reminder', f.breakReminder, 'A gentle "take a break?" after this long without one: for when hyperfocus eats the afternoon.'),
+        ...field('Where was I?', h('label', { class: 'check' }, f.whereOnStart, ' when you come back after a few hours, show the file, the exercise and the note you left')),
+        ...field('Focus timer', f.focusMinutes, 'What focus mode (Ctrl+Shift+G) offers first.'),
+        ...field('Break length', f.breakMinutes),
+        h('h2', {}, 'Editor'),
+        ...field('Autosave', h('label', { class: 'check' }, f.autosave, ' save a moment after you stop typing, and when you switch tabs')),
+        ...field('Word wrap', h('label', { class: 'check' }, f.wrap, ' wrap long lines (Alt+Z)')),
+        ...field('Unsafe functions', h('label', { class: 'check' }, f.banned, ' underline gets, strcpy, sprintf... with why, and what to use instead')),
+        ...field('Snippets', h('label', { class: 'check' }, f.snippets, ' for, if, main, printf, malloc, class... in the completion list (Tab moves between the blanks)')),
         h('h2', {}, 'Folders'),
-        ...field('Workspace', f.workspace, 'Your copy of the vault\'s _code folder, for example ~/cpp-path (File → Copy the vault\'s code makes it)'),
-        ...field('CPP-Path vault', f.vault, 'The folder with "CPP Start Here.md" in it'),
+        ...field('Workspace', f.workspace, 'Where builds, the terminal and new files start: your copy of the vault\'s _code (for example ~/cpp-path), or any project'),
+        ...field('Exercises', f.exercisesDir, 'Where your exercise files go (yours to keep; put the folder in git if you like).'),
+        ...field('More folders', f.folders, 'Shown in Files beside the workspace. Quick open (F3) and search in files cover them all.'),
+        h('h2', {}, 'Guides (vaults)'),
+        h('div', { class: 'full' }, vaultRows, h('div', { class: 'row' }, h('button', { class: 'btn small', type: 'button', onclick: () => addVaultRow().querySelector('input').focus() }, '+ Add a vault')),
+          h('div', { class: 'hint small', style: { marginTop: '4px' } }, 'Every folder of notes here gets a section in Guides: the CPP-Path vault (the folder with "CPP Start Here.md"), a C vault, your own notes. The first one is where "Copy the vault\'s code" looks first.')),
         h('h2', {}, 'Build'),
         ...field('CMake build type', f.buildType, 'Debug turns on AddressSanitizer and UBSan (the vault\'s CMakeLists.txt). Changing it reconfigures on the next build.'),
         ...field('Parallel jobs', f.jobs),
-        ...field('Compiler', f.compiler, 'For single files, the sandbox and the judge. CMake projects use what CMake found.'),
+        ...field('C++ compiler', f.compiler, 'For .cpp files outside CMake, the C++ sandbox and the judge. CMake projects use what CMake found.'),
         ...field('C++ standard', f.std, 'Same: CMake projects set their own (the vault uses C++20).'),
         ...field('Sandbox flags', f.sandboxFlags),
         ...field('Judge time limit (ms)', f.judgeTl), ...field('Judge flags', f.judgeFlags, 'Judges compile with -O2 and no sanitizers'),
@@ -149,7 +218,7 @@ async function openSettings() {
           h('button', { class: 'btn', type: 'button', onclick: () => runCommand('help.tools') }, 'Which tools are installed?'))));
       this.page = page;
     },
-    onClose() { /* an unsaved theme preview reverts */ call('config.get').then((c) => { if (c.theme !== themeName()) applyTheme(c.theme, c.fontSize); }); },
+    onClose() { /* an unsaved look preview reverts */ call('config.get').then((c) => applyTheme(c.theme, c.fontSize, c.look || {})); },
   });
 }
 

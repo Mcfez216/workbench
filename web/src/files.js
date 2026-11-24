@@ -1,4 +1,6 @@
 // The file tree in the sidebar, quick open (F3 / Ctrl+P), search in files.
+// The workspace is the main folder (builds and the terminal start there);
+// more folders can sit beside it (File → Add folder), each with its own tree.
 
 import { call } from './rpc.js';
 import { h, clear, prompt, confirm, popupMenu, toast, dialog, pathText } from './ui.js';
@@ -6,9 +8,11 @@ import { sidebar, command, runCommand, tabs } from './layout.js';
 import { openFile } from './editor.js';
 
 let root = null;
+let folders = [];
 let treeEl = null;
 let titleEl = null;
 const expanded = new Set();
+const collapsedRoots = new Set();
 
 export function setRoot(dir) {
   root = dir;
@@ -16,13 +20,69 @@ export function setRoot(dir) {
   indexCache = null;
   if (treeEl) renderTree();
 }
+export function setFolders(list) {
+  folders = (list || []).filter((f) => f && f !== root);
+  indexCache = null;
+  if (treeEl) renderTree();
+}
 export function workspaceRoot() { return root; }
+export function allRoots() { return [root, ...folders].filter(Boolean).filter((r, i, a) => a.indexOf(r) === i); }
+const baseName = (p) => p.replace(/\/+$/, '').split('/').pop() || p;
 
 async function renderTree() {
+  const roots = allRoots();
+  const out = h('div', {});
+  if (roots.length <= 1) {
+    if (root) out.append(await dirList(root));
+  } else {
+    for (const r of roots) {
+      const open = !collapsedRoots.has(r);
+      const head = h('div', { class: 'root-head' },
+        h('button', { type: 'button', class: 'tree-row root-row', title: r, 'data-root': r },
+          h('span', { class: 'twisty' }, open ? '[-]' : '[+]'), h('span', { class: 'name' }, baseName(r)), r === root ? h('span', { class: 'badge', title: 'The workspace: builds, the terminal and new files start here' }, 'workspace') : null),
+        r === root ? null : h('span', { class: 'row-tools' },
+          h('button', { type: 'button', title: 'Make this the workspace', onclick: () => makeWorkspace(r) }, '★'),
+          h('button', { type: 'button', title: 'Remove from the sidebar (nothing is deleted)', onclick: () => removeFolder(r) }, '×')));
+      head.firstChild.addEventListener('click', () => { if (open) collapsedRoots.add(r); else collapsedRoots.delete(r); renderTree(); });
+      head.firstChild.addEventListener('contextmenu', (ev) => { ev.preventDefault(); fileMenu({ type: 'dir', path: r, name: baseName(r) }, ev.clientX, ev.clientY); });
+      out.append(head);
+      if (open) out.append(await dirList(r));
+    }
+  }
   clear(treeEl);
-  if (!root) return;
-  treeEl.append(await dirList(root));
+  treeEl.append(out);
 }
+
+async function saveFolders(next, nextRoot = root) {
+  const c = await call('config.get');
+  const saved = await call('config.save', { ...c, workspace: nextRoot, folders: next.filter((f) => f !== nextRoot) });
+  root = saved.workspace;
+  setFolders(saved.folders);
+  window.dispatchEvent(new CustomEvent('cpw-config', { detail: saved }));
+  return saved;
+}
+async function addFolder(dir) {
+  const home = (await call('app.info')).home;
+  const full = dir.replace(/^~(?=\/|$)/, home).replace(/\/+$/, '');
+  const st = await call('files.stat', { file: full });
+  if (!st.exists || st.type !== 'dir') { toast(`${dir} isn't a folder`, 'error'); return false; }
+  if (allRoots().includes(full)) { toast(`${baseName(full)} is already in Files`); return true; }
+  if (!root) await saveFolders(folders, full); else await saveFolders([...folders, full]);
+  rememberFolder(full);
+  sidebar.show('files');
+  return true;
+}
+async function removeFolder(dir) { await saveFolders(folders.filter((f) => f !== dir)); }
+async function makeWorkspace(dir) {
+  await saveFolders([root, ...folders.filter((f) => f !== dir)], dir);
+  if (titleEl) { titleEl.textContent = pathText(root); titleEl.title = root; }
+  toast(`${baseName(dir)} is the workspace now: F9, the terminal and new files start there`, 'ok');
+}
+export async function rememberFolder(dir) {
+  const list = await call('state.get', { key: 'recent.folders', fallback: [] });
+  call('state.set', { key: 'recent.folders', value: [dir, ...list.filter((f) => f !== dir)].slice(0, 10) });
+}
+export { addFolder };
 
 async function dirList(dir) {
   const ul = h('ul', { class: 'tree', role: 'group' });
@@ -54,6 +114,7 @@ function fileMenu(e, x, y) {
     e.type === 'file' ? { label: 'Open', run: () => openFile(e.path) } : null,
     e.type === 'file' ? { label: 'Open beside', run: () => openFile(e.path, { side: 'right' }) } : null,
     { label: 'New file here...', run: () => newFile(dir) },
+    { label: 'New class / module here...', run: () => runCommand('file.newPair', dir) },
     { label: 'New folder here...', run: () => newFolder(dir) },
     { label: 'Rename...', run: () => renamePath(e.path) },
     { label: 'Open a terminal here', run: () => runCommand('term.new', dir) },
@@ -63,13 +124,11 @@ function fileMenu(e, x, y) {
 }
 
 async function newFile(dir) {
-  const name = await prompt('New file', `New file in ${dir}`, '', { placeholder: 'hello.cpp' });
-  if (!name) return;
-  const p = name.startsWith('/') ? name : `${dir}/${name}`;
-  await call('files.create', { file: p });
-  await renderTree();
-  openFile(p);
+  const { newFileDialog } = await import('./newstuff.js');
+  const p = await newFileDialog(dir || root);
+  if (p) { await renderTree(); openFile(p); }
 }
+export { newFile, renderTree };
 async function newFolder(dir) {
   const name = await prompt('New folder', `New folder in ${dir}`);
   if (!name) return;
@@ -112,7 +171,15 @@ function fuzzyScore(path, q) {
 
 async function quickOpen() {
   if (!root) return toast('Open a folder first (File → Open folder)', 'error');
-  if (!indexCache) indexCache = await call('files.index', { root });
+  if (!indexCache) {
+    // every folder in Files; with more than one, names start with the folder's
+    const roots = allRoots();
+    const parts = await Promise.all(roots.map((r) => call('files.index', { root: r }).catch(() => ({ root: r, files: [] }))));
+    const many = roots.length > 1;
+    const files = [], full = new Map();
+    for (const part of parts) for (const f of part.files) { const shown = many ? `${baseName(part.root)}/${f}` : f; files.push(shown); full.set(shown, `${part.root}/${f}`); }
+    indexCache = { root, files, full };
+  }
   const input = h('input', { class: 'field', type: 'text', placeholder: 'Type part of a file name', spellcheck: 'false', style: { width: '100%' } });
   const list = h('div', { class: 'list', style: { maxHeight: '50vh', overflow: 'auto', marginTop: '6px', minWidth: '60ch' } });
   let results = [], sel = 0;
@@ -128,7 +195,7 @@ async function quickOpen() {
     });
   };
   let close;
-  const pick = (i) => { const f = results[i]; if (f) { close(true); openFile(`${indexCache.root}/${f}`); } };
+  const pick = (i) => { const f = results[i]; if (f) { close(true); openFile(indexCache.full.get(f)); } };
   input.addEventListener('input', () => { sel = 0; render(); });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(sel + 1, results.length - 1); render(); list.children[sel]?.scrollIntoView({ block: 'nearest' }); }
@@ -142,17 +209,19 @@ async function quickOpen() {
 // ------------------------------------------------------------------ search in files
 async function searchInFiles() {
   if (!root) return;
-  const q = await prompt('Search in files', `Search ${root} for`, '', { hint: 'Plain text, case-insensitive unless you type a capital letter' });
+  const roots = allRoots();
+  const q = await prompt('Search in files', `Search ${roots.length > 1 ? `${roots.length} folders` : root} for`, '', { hint: 'Plain text, case-insensitive unless you type a capital letter' });
   if (!q) return;
-  const hits = await call('files.grep', { root, query: q });
+  const hits = (await Promise.all(roots.map((r) => call('files.grep', { root: r, query: q }).catch(() => [])))).flat();
   const id = 'search:' + q;
   tabs.open({
     id, kind: 'search', title: `Search: ${q}`,
     render(el) {
-      const page = h('div', { class: 'page' }, h('p', { class: 'muted' }, `${hits.length}${hits.length >= 400 ? '+' : ''} matches for "${q}" in ${root}`));
+      const page = h('div', { class: 'page' }, h('p', { class: 'muted' }, `${hits.length}${hits.length >= 400 ? '+' : ''} matches for "${q}" in ${roots.length > 1 ? roots.map(baseName).join(', ') : root}`));
       let lastFile = '';
+      const rel = (f) => { const r = roots.find((x) => f.startsWith(x + '/')); return r ? (roots.length > 1 ? `${baseName(r)}/` : '') + f.slice(r.length + 1) : f; };
       for (const hit of hits) {
-        if (hit.file !== lastFile) { page.append(h('div', { class: 'pane-title' }, hit.file.replace(root + '/', ''))); lastFile = hit.file; }
+        if (hit.file !== lastFile) { page.append(h('div', { class: 'pane-title' }, rel(hit.file))); lastFile = hit.file; }
         const b = h('button', { class: 'list-row', type: 'button' }, h('span', { class: 'muted' }, String(hit.line).padStart(5)), h('span', { class: 'grow' }, hit.text));
         b.addEventListener('click', () => openFile(hit.file, { line: hit.line, col: hit.col }));
         page.append(b);
@@ -164,12 +233,13 @@ async function searchInFiles() {
 
 export function initFiles() {
   sidebar.add({
-    id: 'files', title: 'Files', short: 'Files',
+    id: 'files', title: 'Files', short: 'Files', cmd: 'view.files',
     render(el) {
       titleEl = h('span', { class: 'path', title: root || '' }, root ? pathText(root) : '');
       el.append(
         h('div', { class: 'side-title' }, titleEl, h('span', { class: 'side-tools' },
-          h('button', { type: 'button', title: 'New file', onclick: () => newFile(root) }, '+'),
+          h('button', { type: 'button', title: 'New file (Ctrl+N)', onclick: () => newFile(root) }, '+'),
+          h('button', { type: 'button', title: 'Add another folder beside the workspace', onclick: () => runCommand('file.addFolder') }, '+▢'),
           h('button', { type: 'button', title: 'Refresh', onclick: () => { indexCache = null; renderTree(); } }, '↻'))),
         treeEl = h('div', { role: 'tree' }));
       renderTree();
@@ -186,8 +256,30 @@ export function initFiles() {
     const full = dir.replace(/^~(?=\/|$)/, (await call('app.info')).home);
     const c = await call('config.get');
     c.workspace = full;
-    await call('config.save', c);
+    const saved = await call('config.save', c);
     setRoot(full);
+    setFolders(saved.folders);
+    rememberFolder(full);
+    window.dispatchEvent(new CustomEvent('cpw-config', { detail: saved }));
+    sidebar.show('files');
+  });
+  command('file.addFolder', 'Add folder beside the workspace...', [], async (dir) => {
+    if (typeof dir !== 'string') {
+      dir = await prompt('Add a folder', 'Folder to show in Files, beside the workspace', '~/', { hint: 'Another project, a library you are reading, your C exercises... Quick open (F3) and search (Ctrl+Shift+F) cover every folder.' });
+      if (!dir) return;
+    }
+    await addFolder(dir);
+  });
+  command('file.openRecentFolder', 'Open a recent folder...', [], async () => {
+    const list = await call('state.get', { key: 'recent.folders', fallback: [] });
+    if (!list.length) return toast('No recent folders yet');
+    const { pickFromList } = await import('./newstuff.js');
+    const dir = await pickFromList('Recent folders', list.map((f) => ({ label: pathText(f), value: f })));
+    if (!dir) return;
+    const c = await call('config.get');
+    const saved = await call('config.save', { ...c, workspace: dir });
+    setRoot(dir); setFolders(saved.folders); rememberFolder(dir);
+    window.dispatchEvent(new CustomEvent('cpw-config', { detail: saved }));
     sidebar.show('files');
   });
 }

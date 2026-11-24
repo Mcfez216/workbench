@@ -1,0 +1,19 @@
+# Scripts that run inside Linux / WSL need Unix line endings, even in a
+# Windows git checkout (core.autocrlf): bash can't run a script with \r in it.
+*.sh   text eol=lf
+*.py   text eol=lf
+*.js   text eol=lf
+*.json text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.md   text eol=lf
+
+# The Windows launcher and installer are stored with Windows line endings,
+# byte for byte, so a ZIP download works as well as a clone.
+*.cmd -text
+*.ps1 -text
+*.vbs -text
+
+*.png binary
+*.ico binary
+*.ttf binary

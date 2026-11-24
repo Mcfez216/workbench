@@ -228,7 +228,12 @@ export function initTests() {
     status.set('build', `Testing: ${[...results.values()].filter((x) => x.status === 'passed').length} passed, ${[...results.values()].filter((x) => x.status === 'failed').length} failed`, { order: 30 });
   });
   on('cmake.changed', (d) => { if (!busy && (!root || d.root === root)) refreshSoon(); });
-  command('test.all', 'Run all tests (ctest)', ['F7'], runAll);
+  // F7 in an exercise checks the exercise; anywhere else, ctest
+  command('test.all', 'Run all tests (ctest), or check the exercise', ['F7'], async () => {
+    const { currentExercise, checkExercise } = await import('./exercises.js');
+    const id = currentExercise();
+    return id ? checkExercise(id) : runAll();
+  });
   command('test.here', 'Run the test under the cursor', ['Shift+F7'], runHere);
   command('test.show', 'Tests, projects and programs', [], () => sidebar.show('tests'));
   command('test.project', 'Test a project stub...', [], async () => {

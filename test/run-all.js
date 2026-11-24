@@ -19,11 +19,11 @@ function run(file, env) {
 }
 
 (async () => {
-  const { home, bin, patch } = fx.makeHome();
+  const { home, bin, patch, cVault, myVault } = fx.makeHome();
   const mail = await fx.startMail(patch);
   const irc = await fx.startIrc();
   const vault = fx.findVault();
-  fx.writeConfig(home, { imapPort: mail.imapPort, smtpPort: mail.smtpPort, ircPort: irc.port, vault });
+  fx.writeConfig(home, { imapPort: mail.imapPort, smtpPort: mail.smtpPort, ircPort: irc.port, vault, vaults: [{ path: cVault, name: 'C-Path' }, { path: myVault }] });
   const env = {
     ...process.env, HOME: home, XDG_CONFIG_HOME: '', XDG_DATA_HOME: '', PATH: `${bin}:${process.env.PATH}`,
     GIT_CONFIG_GLOBAL: '/dev/null', CPW_FAKE_SERVERS: '1', ...(vault ? { CPW_VAULT_OK: '1' } : {}),

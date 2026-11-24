@@ -482,6 +482,318 @@ async function test(name, fn) {
     } finally { delete process.env.WORKBENCH_WIN_USERS; fs.rmSync(path.join(HOME, 'fake-c'), { recursive: true }); }
   });
 
+  await test('config: an old single "vault" becomes the first of several, with the new defaults', async () => {
+    const tmp = fs.mkdtempSync(path.join(HOME, 'cfg-'));
+    const dir = path.join(tmp, '.config', 'cpp-path-workbench');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ vault: '~/Old Vault', theme: 'turbo' }));
+    const script = `const c = require(${JSON.stringify(path.join(__dirname, '..', 'server', 'config.js'))});
+      const x = c.load(); const a = { vaults: x.vaults, vault: x.vault, language: x.language, look: x.look, cStd: x.build.cStd, theme: x.theme };
+      const y = c.save({ ...x, vaults: [] }); const b = { vaults: y.vaults, vault: y.vault };
+      const z = c.save({ ...x, vaults: [{ path: '/n/A' }, '/n/B', { path: '/n/A/' }, { path: ' ' }] }); console.log(JSON.stringify({ a, b, z: z.vaults }));`;
+    const out = JSON.parse(require('child_process').execFileSync(process.execPath, ['-e', script], { env: { ...process.env, HOME: tmp }, encoding: 'utf8' }));
+    assert.deepStrictEqual(out.a.vaults, [{ path: '~/Old Vault', name: 'Old Vault' }]);
+    assert.strictEqual(out.a.vault, '~/Old Vault');
+    assert.deepStrictEqual([out.a.language, out.a.look.palette, out.a.look.retroFont, out.a.cStd, out.a.theme], ['cpp', 'soft', 'vga', 'c17', 'turbo']);
+    assert.deepStrictEqual(out.b, { vaults: [], vault: null }, 'removing every vault sticks: the old "vault" doesn\'t come back');
+    assert.deepStrictEqual(out.z.map((v) => v.path), ['/n/A', '/n/B'], 'no blanks, no duplicates');
+    fs.rmSync(tmp, { recursive: true });
+  });
+
+  await test('guides: several vaults at once; each note knows its vault and links stay inside it', async () => {
+    const l = await call('guides.list');
+    const cv = l.vaults.find((v) => v.name === 'C-Path'), mv = l.vaults.find((v) => v.name === 'Scratch Notes');
+    assert.ok(cv && mv, JSON.stringify(l.vaults));
+    assert.deepStrictEqual([cv.count, cv.start, mv.count, mv.start], [2, 'C Start Here', 2, 'Start Here']);
+    assert.strictEqual(l.notes.filter((n) => n.name === 'Pointers').length, 2, 'the same name in two vaults');
+    const inC = await call('guides.read', { name: 'Pointers', vault: cv.path });
+    assert.match(inC.text, /Pointers in C/);
+    assert.strictEqual(inC.vaultName, 'C-Path');
+    const mine = await call('guides.read', { name: 'Pointers', vault: mv.path });
+    assert.match(mine.text, /in my words/);
+    const hits = await call('guides.search', { query: 'pointers', vault: mv.path });
+    assert.ok(hits.length && hits.every((x) => x.vault === mv.path));
+    const all = await call('guides.search', { query: 'pointers' });
+    assert.ok(all.some((x) => x.vault === cv.path) && all.some((x) => x.vault === mv.path));
+    const code = await call('guides.codePath', { rel: '_code/hello.c', vault: cv.path });
+    assert.strictEqual(code.path, path.join(cv.path, '_code', 'hello.c'));
+    const cards = await call('guides.cards');
+    assert.ok(cards.questions.some((q) => q.vaultName === 'C-Path' && q.phase === 1 && /\*p/.test(q.q)));
+    assert.ok(cards.why.some((q) => q.vault === cv.path));
+    await assert.rejects(call('guides.read', { file: path.join(PROJ, 'CMakeLists.txt') }), /outside your vaults/);
+  });
+
+  await test('sandbox: C with gcc, its own scratch.c, a runtime problem, Valgrind, and the assembly', async () => {
+    const src = '#include <stdio.h>\n#include <stdlib.h>\n\nint main(void) {\n    int *p = malloc(sizeof *p);\n    free(p);\n    printf("%d\\n", *p);\n    return 0;\n}\n';
+    const got = waitFor('build.runtime', (d) => d.problems.some((x) => /use-after-free/.test(x.message)), 30000);
+    const r = await call('sandbox.run', { source: src, lang: 'c', compiler: 'gcc', std: 'c17' });
+    assert.ok(r.ok, 'compiles as C');
+    assert.match(r.file, /scratch\.c$/);
+    const d = await got;
+    const p = d.problems.find((x) => /use-after-free/.test(x.message));
+    assert.deepStrictEqual([p.file, p.line], [r.file, 7]);
+    await call('pty.close', { id: r.terminal.id });
+    // C isn't C++: this only compiles as C
+    const cOnly = await call('sandbox.run', { source: '#include <stdlib.h>\nint main(void) { int *new = malloc(4); free(new); return 0; }\n', lang: 'c' });
+    assert.ok(cOnly.ok, '"new" is just a name in C');
+    await call('pty.close', { id: cOnly.terminal.id });
+    if (require('../server/build').which('valgrind')) {
+      let out = '';
+      c.on((ev, x) => { if (ev === 'pty.data') out += x.data; });
+      const v = await call('sandbox.run', { source: '#include <stdlib.h>\nint main(void) { int *a = malloc(40); a[0] = 1; return 0; }\n', lang: 'c', tool: 'valgrind' });
+      assert.ok(v.ok);
+      assert.ok(await until(() => /definitely lost: 40 bytes/.test(out), 30000), out.slice(-400));
+      await call('pty.close', { id: v.terminal.id });
+    }
+    const asm = await call('sandbox.asm', { source: 'int square(int x) {\n    return x * x;\n}\n', lang: 'c', opt: '-O1' });
+    assert.ok(asm.ok);
+    assert.match(asm.flags, /^gcc -std=c17/);
+    assert.match(asm.lines.map((l) => l.text).join('\n'), /^square:$/m);
+  });
+
+  await test('C: a lone .c file builds with gcc, runs, and gdb stops in it without CMake', async () => {
+    const dir = path.join(HOME, 'lone-c');
+    fs.mkdirSync(dir, { recursive: true });
+    const f = path.join(dir, 'hello.c');
+    fs.writeFileSync(f, '#include <stdio.h>\n\nint main(void) {\n    int n = 6 * 7;\n    printf("n is %d\\n", n);\n    return 0;\n}\n');
+    let out = '';
+    c.on((ev, x) => { if (ev === 'pty.data') out += x.data.replace(/\x1b\[[0-9;]*m/g, ''); });
+    const r = await call('cmake.run', { file: f });
+    assert.ok(r.ok, JSON.stringify(r.problems));
+    assert.strictEqual(r.lang, 'c');
+    assert.ok(await until(() => /n is 42/.test(out), 15000));
+    await call('pty.close', { id: r.terminal.id });
+    const g = await call('cmake.debug', { file: f, line: 5 });
+    assert.ok(g.ok);
+    assert.ok(await until(() => /Breakpoint 1, main \(\) at .*hello\.c:5/.test(out), 20000), out.slice(-400));
+    await call('pty.write', { id: g.terminal.id, data: 'print n\n' });
+    assert.ok(await until(() => /\$1 = 42/.test(out)));
+    await call('pty.close', { id: g.terminal.id });
+    // and a lone .cpp the same way (this used to run "./" instead of the program)
+    const cpp = path.join(dir, 'hi.cpp');
+    fs.writeFileSync(cpp, '#include <iostream>\nint main() { std::cout << "hi from C++\\n"; }\n');
+    const rc = await call('cmake.run', { file: cpp });
+    assert.ok(rc.ok);
+    assert.ok(await until(() => /hi from C\+\+/.test(out), 15000), out.slice(-300));
+    await call('pty.close', { id: rc.terminal.id });
+    const bad = path.join(dir, 'bad.c');
+    fs.writeFileSync(bad, 'int main(void) {\n    return missing;\n}\n');
+    const b = await call('build.build', { file: bad });
+    assert.notStrictEqual(b.code, 0);
+    assert.deepStrictEqual([b.problems[0].file, b.problems[0].line], [bad, 2]);
+  });
+
+  await test('judge: a C solution, compiled with gcc -O2', async () => {
+    const r = await call('cp.newProblem', { name: 'sum-c', lang: 'c' });
+    assert.match(r.file, /cp\/problems\/sum-c\.c$/);
+    fs.writeFileSync(r.file, '#include <stdio.h>\nint main(void) { long a, b; if (scanf("%ld %ld", &a, &b) != 2) return 1; printf("%ld\\n", a + b); return 0; }\n');
+    const j = await call('cp.judge', { file: r.file, cases: [{ input: '2 3\n', expected: '5\n' }, { input: '1 1\n', expected: '3\n' }] });
+    assert.ok(j.compiled, JSON.stringify(j.problems));
+    assert.deepStrictEqual(j.results.map((x) => x.verdict), ['AC', 'WA']);
+    fs.rmSync(r.file);
+  });
+
+  await test('new project: a C library with tests configures, builds and passes ctest', async () => {
+    const parent = path.join(HOME, 'projects');
+    const r = await call('project.create', { dir: parent, name: 'ring buffer', lang: 'c', kind: 'library' });
+    assert.strictEqual(r.root, path.join(parent, 'ring_buffer'));
+    assert.ok(r.git && fs.existsSync(path.join(r.root, '.git')));
+    for (const f of ['CMakeLists.txt', 'src/main.c', 'src/ring_buffer.c', 'include/ring_buffer.h', 'tests/test_ring_buffer.c', '.clang-format', '.gitignore']) assert.ok(fs.existsSync(path.join(r.root, f)), f);
+    const t = await call('ctest.run', { root: r.root });
+    assert.ok(t.ok, JSON.stringify(t.problems));
+    assert.deepStrictEqual(t.summary, { percent: 100, failed: 0, total: 1 });
+    await assert.rejects(call('project.create', { dir: parent, name: 'ring_buffer', lang: 'c' }), /already exists/);
+    const cpp = await call('project.create', { dir: parent, name: 'shapes', lang: 'cpp', kind: 'console', git: false });
+    const b = await call('build.build', { file: cpp.main });
+    assert.strictEqual(b.code, 0, 'a new C++ program builds warning-clean');
+    assert.ok(!b.problems.some((x) => x.severity === 'warning'));
+    // the header and the source find each other
+    assert.strictEqual((await call('files.counterpart', { file: path.join(r.root, 'src', 'ring_buffer.c') })).file, path.join(r.root, 'include', 'ring_buffer.h'));
+    assert.strictEqual((await call('files.counterpart', { file: path.join(r.root, 'include', 'ring_buffer.h') })).file, path.join(r.root, 'src', 'ring_buffer.c'));
+    const pair = await call('project.newPair', { dir: path.join(cpp.root, 'src'), name: 'Circle', lang: 'cpp' });
+    assert.deepStrictEqual(pair.files.map((f) => path.basename(f)), ['Circle.hpp', 'Circle.cpp']);
+    assert.strictEqual((await call('files.counterpart', { file: pair.files[0] })).file, pair.files[1]);
+    const hdr = await call('project.newFile', { file: path.join(r.root, 'include', 'util.h'), kind: 'header', lang: 'c' });
+    assert.match(fs.readFileSync(hdr.file, 'utf8'), /#ifndef UTIL_H_\n#define UTIL_H_/);
+  });
+
+  if (require('../server/build').which('clang-format')) {
+    await test('format: clang-format on its own, with the project\'s .clang-format', async () => {
+      const r = await call('format.file', { file: path.join(HOME, 'projects', 'shapes', 'src', 'x.cpp'), text: 'int  main( ){return 0;}\n' });
+      // the project's style (4 spaces, short functions not on one line), not LLVM's 2
+      assert.strictEqual(r.text, 'int main() {\n    return 0;\n}\n');
+    });
+  }
+
+  await test('windows: the WSL launcher picks the window or the browser, and says what is missing', async () => {
+    const { execFileSync, spawnSync } = require('child_process');
+    const script = path.join(__dirname, '..', 'scripts', 'wsl-launch.sh');
+    const env = { ...process.env, HOME };
+    delete env.DISPLAY; delete env.WAYLAND_DISPLAY;
+    const check = (...a) => execFileSync('bash', [script, ...a, '--check'], { env, encoding: 'utf8' }).trim();
+    const electron = fs.existsSync(path.join(__dirname, '..', 'node_modules', 'electron', 'dist', 'electron'));
+    if (!fs.existsSync('/mnt/wslg')) assert.strictEqual(check(), 'browser', 'no WSLg: the browser');
+    assert.strictEqual(execFileSync('bash', [script, '--check'], { env: { ...env, WAYLAND_DISPLAY: 'wayland-0' }, encoding: 'utf8' }).trim(), electron ? 'window' : 'browser');
+    assert.strictEqual(check('window'), 'window');
+    assert.strictEqual(check('browser'), 'browser');
+    // a copy without its packages says to run the installer again
+    const app = fs.mkdtempSync(path.join(HOME, 'app-'));
+    fs.mkdirSync(path.join(app, 'scripts'));
+    fs.copyFileSync(script, path.join(app, 'scripts', 'wsl-launch.sh'));
+    const r = spawnSync('bash', [path.join(app, 'scripts', 'wsl-launch.sh')], { env: { ...env, PATH: process.env.PATH.split(':').filter((d) => !fs.existsSync(path.join(d, 'powershell.exe'))).join(':') }, encoding: 'utf8' });
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stderr, /Run 'Install on Windows' again/);
+    fs.rmSync(app, { recursive: true });
+    // the Windows files keep Windows line endings and plain ASCII (Windows PowerShell 5.1 reads them as ANSI)
+    for (const f of ['windows/Install.ps1', 'windows/Launch.vbs', 'Install on Windows.cmd']) {
+      const text = fs.readFileSync(path.join(__dirname, '..', f), 'latin1');
+      assert.ok(!/[^\r]\n/.test(text), `${f}: CRLF line endings`);
+      assert.ok(!/[^\x00-\x7f]/.test(text), `${f}: ASCII only`);
+    }
+  });
+
+  await test('exercises: every starter fails step 1, every solution passes them all; the CTF flags are reachable', async () => {
+    const { execFileSync } = require('child_process');
+    const list = await call('exercises.list');
+    assert.ok(list.length >= 20);
+    for (const it of list) {
+      const o = await call('exercises.open', { id: it.id });
+      const data = require('../server/exercise-data').find((e) => e.id === it.id);
+      if (it.kind === 'ctf') {
+        const run = (input) => execFileSync(o.binary, [], { input, cwd: o.dir, encoding: 'utf8' });
+        let out;
+        if (it.id === 'ctf-strings') {
+          const pw = execFileSync('strings', [o.binary], { encoding: 'utf8' }).split('\n').find((l) => /^hunter/.test(l));
+          out = run(pw + '\n');
+        } else if (it.id === 'ctf-xor') out = run('open_sesame\n');
+        else if (it.id === 'ctf-overflow') out = run('A'.repeat(16) + 'B\n');
+        else out = run('2147484\n');
+        const flag = (out.match(/FLAG\{[^}]+\}/) || [])[0];
+        assert.ok(flag, `${it.id}: the intended way gives a flag (${out})`);
+        assert.strictEqual((await call('exercises.flag', { id: it.id, flag: 'FLAG{nope}' })).ok, false);
+        assert.strictEqual((await call('exercises.flag', { id: it.id, flag })).ok, true, it.id);
+        continue;
+      }
+      const first = await call('exercises.check', { id: it.id });
+      assert.ok(first.compiled, `${it.id}: the starter compiles ${JSON.stringify(first.problems.filter((p) => p.severity === 'error'))}`);
+      assert.strictEqual(first.advanced, false, `${it.id}: the starter doesn't pass step 1`);
+      for (let guard = 0; guard < 10; guard++) {
+        const pr = (await call('exercises.list')).find((x) => x.id === it.id);
+        if (pr.done) break;
+        const step = data.steps[pr.step];
+        if (step.type === 'reflect') {
+          const r = await call('exercises.reflect', { id: it.id, step: pr.step, text: 'In my own words: it writes past the end.' });
+          assert.ok(r.answer);
+          continue;
+        }
+        fs.writeFileSync(o.file, (data.solutions && data.solutions[pr.step]) || data.solution);
+        const r = await call('exercises.check', { id: it.id });
+        assert.ok(r.advanced, `${it.id} step ${pr.step + 1}: ${JSON.stringify(r.results)} ${JSON.stringify(r.problems.filter((p) => p.severity === 'error'))}`);
+      }
+      assert.ok((await call('exercises.list')).find((x) => x.id === it.id).done, `${it.id} done`);
+    }
+    // a failure says what was expected
+    const o = await call('exercises.open', { id: 'c-first-functions' });
+    await call('exercises.reset', { id: 'c-first-functions' });
+    fs.writeFileSync(o.file, fs.readFileSync(o.file, 'utf8').replace('/* TODO step 1 */\n    return 0;', 'return a - b;'));
+    const bad = await call('exercises.check', { id: 'c-first-functions' });
+    assert.match(bad.results[0].fails[0].detail, /got -1, expected 5/);
+    // a memory bug fails the step even when the answer looks right
+    const m = await call('exercises.open', { id: 'c-memory' });
+    await call('exercises.reset', { id: 'c-memory' });
+    fs.writeFileSync(m.file, '#include <stdlib.h>\n#include <string.h>\nint *make_range(int n) { if (n <= 0) return NULL; int *a = malloc(n * sizeof *a); for (int i = 0; i <= n; ++i) a[i] = i; return a; }\nchar *dup_string(const char *s) { return NULL; }\nint *grow(int *a, size_t o, size_t n) { return a; }\n');
+    const oob = await call('exercises.check', { id: 'c-memory' });
+    assert.strictEqual(oob.results[0].passed, false);
+    assert.match(oob.results[0].fails.map((f) => f.detail).join(' '), /heap-buffer-overflow/);
+    assert.ok(oob.problems.some((p) => p.runtime && p.file === m.file && p.line === 3), 'the sanitizer points at your line');
+    const sum = await call('progress.summary');
+    assert.ok(sum.totals.done >= 18 && sum.days[Object.keys(sum.days)[0]].steps > 0);
+  });
+
+  await test('security: hardening three ways, checksec, and a look inside the binary', async () => {
+    const src = '#include <stdio.h>\n#include <string.h>\nint main(int argc, char **argv) { char b[16]; if (argc > 1) strcpy(b, argv[1]); printf("%s\\n", b); return 0; }\n';
+    const r = await call('security.compare', { source: src, lang: 'c' });
+    const [off, def, hard] = r.variants;
+    assert.ok(off.ok && def.ok && hard.ok, JSON.stringify(r.variants.map((v) => v.error)));
+    const st = (v, id) => v.checks.find((c) => c.id === id);
+    assert.deepStrictEqual(['pie', 'nx', 'canary', 'relro'].map((id) => st(off, id).on), [false, false, false, false], 'everything off is off');
+    assert.deepStrictEqual(['pie', 'nx', 'canary', 'relro', 'fortify'].map((id) => st(hard, id).on), [true, true, true, true, true], 'hardened is hardened');
+    assert.strictEqual(st(hard, 'relro').state, 'full');
+    const syms = await call('security.inspect', { exe: def.exe, what: 'symbols' });
+    assert.ok(syms.rows.some((x) => x.pretty === 'main' && x.kind === 'code'));
+    const dis = await call('security.inspect', { exe: def.exe, what: 'disasm', symbol: 'main' });
+    assert.match(dis.text, /<main>:/);
+    assert.ok((await call('security.inspect', { exe: def.exe, what: 'strings' })).rows.some((x) => /GLIBC|libc\.so/.test(x.text)));
+    assert.ok((await call('security.inspect', { exe: def.exe, what: 'sections' })).rows.some((x) => x.name === '.text' && /X/.test(x.flags)));
+    await assert.rejects(call('security.checksec', { exe: path.join(PROJ, 'CMakeLists.txt') }), /isn't a Linux program/);
+  });
+
+  const fuzzOk = fs.existsSync('/usr/lib/llvm-18/lib/clang/18/lib/linux/libclang_rt.fuzzer-x86_64.a') || process.env.CPW_FUZZ;
+  if (fuzzOk) {
+    await test('security: libFuzzer finds the overflow, it lands in Problems, and the input is kept', async () => {
+      const got = waitFor('build.runtime', (d) => d.problems.some((x) => /stack-buffer-overflow/.test(x.message)), 60000);
+      const src = '#include <stddef.h>\n#include <stdint.h>\n#include <string.h>\nint LLVMFuzzerTestOneInput(const uint8_t *d, size_t n) {\n    char name[8];\n    if (n < 1) return 0;\n    size_t len = d[0];\n    if (len > n - 1) len = n - 1;\n    memcpy(name, d + 1, len);\n    return name[0] == 0;\n}\n';
+      const r = await call('security.fuzz', { source: src, lang: 'c', seconds: 20 });
+      assert.ok(r.ok, JSON.stringify(r.problems));
+      const d = await got;
+      assert.strictEqual(d.problems.find((x) => /stack-buffer-overflow/.test(x.message)).line, 9);
+      await until(() => false, 1500);
+      const cr = await call('security.crashes', { source: '', lang: 'c' });
+      assert.ok(cr.crashes.length >= 1 && /^0000 {2}/.test(cr.crashes[0].hex));
+      await call('pty.close', { id: r.terminal.id });
+    });
+  }
+
+  await test('memory view: the stack, a pointer into an array, the heap, NULL, and what was printed', async () => {
+    const r = await call('memviz.trace', { lang: 'c', source: '#include <stdio.h>\n#include <stdlib.h>\n\nstatic void bump(int *x) {\n    *x += 1;\n}\n\nint main(void) {\n    int a[3] = {1, 2, 3};\n    int *p = &a[1];\n    int *h = malloc(sizeof *h);\n    *h = 42;\n    int *none = NULL;\n    bump(p);\n    printf("%d\\n", a[1]);\n    free(h);\n    return 0;\n}\n' });
+    assert.ok(r.compiled);
+    assert.match(r.end, /exited with code 0|finished/);
+    const at = (line) => r.steps.find((s) => s.line === line);
+    const v = (s, f, n) => s.frames.find((x) => x.func === f).vars.find((x) => x.name === n);
+    const s14 = at(14);
+    assert.deepStrictEqual(v(s14, 'main', 'p').target, { kind: 'var', level: 0, name: 'a', offset: 4 }, 'p points 4 bytes into a');
+    assert.strictEqual(v(s14, 'main', 'h').target.kind, 'heap');
+    assert.ok(s14.heap.some((b) => b.value === '42'));
+    assert.ok(v(s14, 'main', 'none').isNull);
+    const inBump = at(5);
+    assert.deepStrictEqual(inBump.frames.map((f) => f.func), ['bump', 'main'], 'a call is a new frame on top');
+    assert.strictEqual(v(inBump, 'bump', 'x').target.name, 'a');
+    assert.strictEqual(at(16).stdout, '3\n');
+    const cpp = await call('memviz.trace', { lang: 'cpp', source: '#include <vector>\nint main() {\n    std::vector<int> v{1, 2};\n    v.push_back(3);\n    return 0;\n}\n' });
+    assert.ok(cpp.steps.some((s) => s.frames[0] && s.frames[0].vars.some((x) => /length 3/.test(x.value))), 'gdb shows the vector');
+    const bad = await call('memviz.trace', { lang: 'c', source: 'int main(void) { return nope; }\n' });
+    assert.strictEqual(bad.compiled, false);
+  });
+
+  await test('checkpoints: save, change, go back, and the present was kept', async () => {
+    const dir = path.join(HOME, 'cp-demo');
+    fs.mkdirSync(dir, { recursive: true });
+    const f = path.join(dir, 'a.c');
+    fs.writeFileSync(f, 'int one(void) { return 1; }\n');
+    assert.ok((await call('git.checkpoint', { cwd: dir, note: 'first' })).needRepo, 'asks before making a repository');
+    const c1 = await call('git.checkpoint', { cwd: dir, note: 'works', status: 'green', init: true });
+    assert.ok(c1.hash);
+    assert.ok((await call('git.checkpoint', { cwd: dir })).nothing);
+    fs.writeFileSync(f, 'int one(void) { return 2; }   /* broke it */\n');
+    fs.writeFileSync(path.join(dir, 'new.c'), 'int extra;\n');
+    const back = await call('git.goBack', { cwd: dir, hash: c1.hash });
+    assert.strictEqual(fs.readFileSync(f, 'utf8'), 'int one(void) { return 1; }\n');
+    assert.ok(!fs.existsSync(path.join(dir, 'new.c')), 'files made later are gone too');
+    const list = await call('git.checkpoints', { cwd: dir });
+    assert.ok(list.list.some((x) => x.status === 'green' && /works/.test(x.subject)));
+    assert.ok(list.list.some((x) => /before going back/.test(x.subject)) && back.saved, 'the broken version is a checkpoint too');
+    const t = await call('project.testFor', { file: path.join(HOME, 'projects', 'ring_buffer', 'src', 'ring_buffer.c'), func: 'ring_buffer_add', signature: 'int ring_buffer_add(int a, int b)' });
+    assert.match(fs.readFileSync(t.file, 'utf8'), /#include "..\/include\/ring_buffer.h"/);
+    assert.match(t.cmake, /add_test\(NAME test_ring_buffer_add/);
+    const b = await call('build.build', { file: t.file });
+    assert.strictEqual(b.code, 0, 'the project still builds with the new test');
+  });
+
+  await test('man pages come back as text, or say why not', async () => {
+    try { const m = await call('man.page', { page: 'gcc' }); assert.match(m.text, /gcc/i); }
+    catch (e) { assert.match(e.message, /minimal Ubuntu|No manual page|not installed/); }
+  });
+
   await test('state: remembers values', async () => {
     await call('state.set', { key: 'test.x', value: { a: 1 } });
     assert.deepStrictEqual(await call('state.get', { key: 'test.x' }), { a: 1 });

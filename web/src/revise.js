@@ -11,7 +11,7 @@ import { openGuide } from './guides.js';
 
 const DAYS = [0, 1, 3, 7, 16, 35];     // box -> days until it comes back
 const DAY = 86400000;
-const DECKS = { questions: 'Check-yourself questions', why: 'Why this matters', reference: 'Cheat-sheet tables' };
+const DECKS = { questions: 'Check-yourself questions', why: 'Why this matters', reference: 'Cheat-sheet tables', mistakes: 'Your mistakes' };
 
 function cardId(deck, c) {
   let x = 0;
@@ -26,23 +26,30 @@ async function openRevise() {
       const page = h('div', { class: 'page revise' });
       el.append(page);
       let data, boxes;
-      try { [data, boxes] = await Promise.all([call('guides.cards'), call('state.get', { key: 'revise.boxes', fallback: {} })]); }
-      catch (err) { page.append(h('p', {}, err.message)); return; }
-      const opts = await call('state.get', { key: 'revise.opts', fallback: { deck: 'questions', phase: 'all' } });
+      // the vaults' decks (if there are vaults), plus one made from your own mistakes
+      const { mistakeCards } = await import('./explain.js');
+      [data, boxes] = await Promise.all([call('guides.cards').catch(() => ({ questions: [], why: [], reference: [], vaults: [] })), call('state.get', { key: 'revise.boxes', fallback: {} })]);
+      data.mistakes = await mistakeCards();
+      const opts = await call('state.get', { key: 'revise.opts', fallback: { deck: 'questions', phase: 'all', vault: 'all' } });
       if (!DECKS[opts.deck]) opts.deck = 'questions';
       const deckSel = h('select', { class: 'field', 'aria-label': 'Deck' }, Object.entries(DECKS).map(([k, v]) => h('option', { value: k, selected: k === opts.deck }, `${v} (${data[k].length})`)));
       const phaseSel = h('select', { class: 'field', 'aria-label': 'Phase' }, ['all', 0, 1, 2, 3, 4, 5].map((p) => h('option', { value: String(p), selected: String(p) === String(opts.phase) }, p === 'all' ? 'All phases' : `Phase ${p}`)));
+      // several vaults: cards from all of them, or just one
+      const vaults = data.vaults || [];
+      const vaultSel = h('select', { class: 'field', 'aria-label': 'Vault', hidden: vaults.length < 2 },
+        h('option', { value: 'all' }, 'Every vault'), vaults.map((v) => h('option', { value: v.path, selected: v.path === opts.vault }, v.name)));
       const counts = h('span', { class: 'muted' });
       const stage = h('div', { class: 'card-stage' });
-      page.append(h('div', { class: 'toolbar' }, deckSel, phaseSel, counts), stage);
+      page.append(h('div', { class: 'toolbar' }, deckSel, phaseSel, vaultSel, counts), stage);
 
       let queue = [], card = null, shown = false;
       const save = () => call('state.set', { key: 'revise.boxes', value: boxes });
       const build = () => {
-        const deck = deckSel.value, ph = phaseSel.value;
-        call('state.set', { key: 'revise.opts', value: { deck, phase: ph } });
+        const deck = deckSel.value, ph = phaseSel.value, vault = vaultSel.value;
+        call('state.set', { key: 'revise.opts', value: { deck, phase: ph, vault } });
         const now = Date.now();
-        const all = (data[deck] || []).filter((c) => ph === 'all' || c.phase === +ph || (c.phase === null && deck === 'reference')).map((c) => ({ ...c, id: cardId(deck, c) }));
+        const all = (data[deck] || []).filter((c) => vault === 'all' || c.vault === vault)
+          .filter((c) => ph === 'all' || c.phase === +ph || (c.phase === null && deck === 'reference')).map((c) => ({ ...c, id: cardId(deck, c) }));
         const due = all.filter((c) => !boxes[c.id] || boxes[c.id].due <= now);
         // never-seen and low boxes first, shuffled within a box
         queue = due.map((c) => [c, (boxes[c.id]?.box ?? -1) + Math.random()]).sort((a, b) => a[1] - b[1]).map((x) => x[0]);
@@ -55,6 +62,7 @@ async function openRevise() {
         shown = false;
         clear(stage);
         if (!card) {
+          if (deckSel.value === 'mistakes' && !data.mistakes.length) { stage.append(h('div', { class: 'card done' }, h('h2', {}, 'No mistakes yet.'), h('p', {}, 'When the compiler or a sanitizer catches something in your code, a card about it lands here, so the ones you meet most come back most.'))); return; }
           stage.append(h('div', { class: 'card done' }, h('h2', {}, 'Nothing due.'), h('p', {}, 'Every card in this deck is scheduled for later. Pick another deck or phase, or come back tomorrow.'),
             h('p', { class: 'muted' }, '"Do. Or do not. There is no try." You did. The 60 tests would be proud.')));
           return;
@@ -68,7 +76,7 @@ async function openRevise() {
           h('button', { class: 'btn primary', type: 'button', 'data-g': '2' }, 'Got it (3)'));
         const front = h('div', { class: 'card-front md' });
         front.innerHTML = `<p>${renderInline(card.q)}</p>`;
-        const src = h('a', { href: '#', class: 'muted', onclick: (e) => { e.preventDefault(); openGuide(card.note); } }, `${card.note}${card.phase !== null && card.phase !== undefined ? ' · Phase ' + card.phase : ''}`);
+        const src = h('a', { href: '#', class: 'muted', onclick: (e) => { e.preventDefault(); openGuide(card.note, undefined, { vault: card.vault }); } }, `${vaults.length > 1 ? card.vaultName + ' › ' : ''}${card.note}${card.phase !== null && card.phase !== undefined ? ' · Phase ' + card.phase : ''}`);
         stage.append(h('div', { class: 'card' }, h('div', { class: 'card-src' }, src), front, back, h('div', { class: 'card-actions' }, reveal, grade)));
         back.querySelectorAll('.codeblock .code-tools').forEach((x) => x.remove());
         const show = () => { shown = true; back.hidden = false; reveal.hidden = true; grade.hidden = false; grade.querySelector('[data-g="2"]').focus(); };
@@ -90,6 +98,7 @@ async function openRevise() {
       };
       deckSel.addEventListener('change', build);
       phaseSel.addEventListener('change', build);
+      vaultSel.addEventListener('change', build);
       el.addEventListener('keydown', (e) => { if (this.keys && !e.target.closest('select')) this.keys(e); });
       el.tabIndex = -1;
       build();

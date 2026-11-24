@@ -84,8 +84,24 @@ export function message(title, text) {
   return dialog({ title, body: h('pre', { class: 'dialog-pre' }, text) });
 }
 
+// Quiet mode (Settings → Comfort, and during focus): messages wait in the
+// inbox (the ✉ on the status line) instead of popping up. Errors still show.
 let toastBox = null;
+let quietReasons = new Set();
+const inbox = [];
+const inboxWatchers = new Set();
+export function setQuiet(reason, on) { if (on) quietReasons.add(reason); else quietReasons.delete(reason); for (const fn of inboxWatchers) fn(inbox); }
+export function isQuiet() { return quietReasons.size > 0; }
+export function inboxMessages() { return inbox; }
+export function clearInbox() { inbox.length = 0; for (const fn of inboxWatchers) fn(inbox); }
+export function onInbox(fn) { inboxWatchers.add(fn); return () => inboxWatchers.delete(fn); }
 export function toast(text, kind = 'info', ms = 3500) {
+  if (quietReasons.size && kind !== 'error') {
+    inbox.unshift({ text: String(text), kind, at: Date.now() });
+    inbox.length = Math.min(inbox.length, 50);
+    for (const fn of inboxWatchers) fn(inbox);
+    return;
+  }
   if (!toastBox) { toastBox = h('div', { class: 'toasts', 'aria-live': 'polite' }); document.body.append(toastBox); }
   const t = h('div', { class: `toast ${kind}` }, text);
   toastBox.append(t);
@@ -142,4 +158,18 @@ export function relTime(iso) {
   const sameDay = d.toDateString() === now.toDateString();
   return sameDay ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : d.toLocaleDateString([], { day: 'numeric', month: 'short', year: d.getFullYear() === now.getFullYear() ? undefined : '2-digit' });
+}
+
+// A row of buttons, one pressed: [[value, label], ...]. el.value is the
+// choice; it fires "change" when you pick another.
+export function choices(options, value, { label } = {}) {
+  const box = h('div', { class: 'choices', role: 'group', 'aria-label': label || undefined });
+  box.value = value;
+  for (const [v, text, title] of options) {
+    const b = h('button', { type: 'button', class: 'choice', 'aria-pressed': String(v === value), 'data-value': String(v), title: title || undefined }, text);
+    b.addEventListener('click', () => { box.set(v); box.dispatchEvent(new Event('change')); });
+    box.append(b);
+  }
+  box.set = (v) => { box.value = v; box.querySelectorAll('.choice').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.value === String(v)))); };
+  return box;
 }
