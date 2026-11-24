@@ -84,7 +84,7 @@ function defaults() {
       folders: ['INBOX'],
       fetchCount: 200,
     },
-    music: { url: 'https://music.youtube.com/' },
+    music: { url: 'https://music.youtube.com/', where: 'auto' },   // where: auto (a Windows window under WSL) | app
   };
 }
 

@@ -14,6 +14,11 @@
 //   server -> client  {ev: "module.event", d: {...}}   (pushed to every window)
 
 const http = require('http');
+const net = require('net');
+// Node tries a server's IPv6 and IPv4 addresses in turn, by default giving
+// each only 250 ms. In WSL (and on slow or busy networks) every attempt can
+// time out and IRC / mail fail with a bare "AggregateError". 2.5 s each.
+if (net.setDefaultAutoSelectFamilyAttemptTimeout) net.setDefaultAutoSelectFamilyAttemptTimeout(2500);
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -42,6 +47,20 @@ function loadModules() {
   for (const m of ['files', 'pty', 'build', 'cmake', 'cp', 'git', 'guides', 'irc', 'mail', 'lsp', 'state', 'project', 'exercises', 'security', 'memviz']) {
     require('./' + m).init(api);
   }
+  // Music on Windows (WSL): YouTube Music in its own Microsoft Edge app window
+  // (no tabs, no address bar), playing through Windows' own audio
+  register('music.windows', async ({ url }) => {
+    const distro = require('./distro');
+    if (!distro.WSL) throw new Error('Only under WSL');
+    const u = String(url || 'https://music.youtube.com/');
+    if (!/^https:\/\/(music|www)\.youtube\.com\/[\w\-./?=%#]*$/.test(u)) throw new Error('Not a YouTube Music address');
+    const { spawn } = require('child_process');
+    // cmd.exe from a Windows folder (a Linux one makes it complain about UNC paths)
+    const child = spawn('cmd.exe', ['/c', 'start', '""', 'msedge', `--app=${u}`], { cwd: '/mnt/c', detached: true, stdio: 'ignore' });
+    await new Promise((resolve, reject) => { child.on('error', (e) => reject(new Error(`Couldn't start Edge from WSL: ${e.message}`))); child.on('spawn', resolve); });
+    child.unref();
+    return true;
+  });
   register('config.get', async () => config.get());
   register('config.save', async (p) => config.save(p));
   register('app.info', async () => ({

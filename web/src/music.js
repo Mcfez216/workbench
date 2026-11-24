@@ -3,13 +3,38 @@
 // access to the rest of the app); in a browser it opens in a normal tab.
 
 import { h, toast } from './ui.js';
+import { call } from './rpc.js';
 import { tabs, command, status } from './layout.js';
 
 const inElectron = /\bElectron\//.test(navigator.userAgent);
 let url = 'https://music.youtube.com/';
 export function setMusicUrl(u) { if (/^https:\/\/(music|www)\.youtube\.com\//.test(u || '')) url = u; }
 
-function openMusic(how) {
+// Under WSL, sound from inside the app crackles (it goes through WSLg's
+// remote-desktop audio): by default Music opens in its own Windows window,
+// an Edge "app" window with no tabs or address bar, playing through
+// Windows' own audio. Settings → Music can keep it inside the app.
+let where = 'auto';
+let wsl = false;
+export function setMusicWhere(w, isWsl) { where = w || 'auto'; wsl = !!isWsl; }
+
+async function openWindowsPlayer() {
+  try {
+    await call('music.windows', { url });
+    status.set('music', '♪ in its own window', { order: 70, title: 'YouTube Music is playing in its own Windows window (Settings → Music)' });
+    toast('YouTube Music opened in its own window, playing through Windows (no crackle). Your media keys work there.', 'ok', 7000);
+    return true;
+  } catch (err) {
+    toast(`${err.message}. Playing inside the app instead.`, 'info', 7000);
+    return false;
+  }
+}
+
+async function openMusic(how) {
+  if (inElectron && wsl && where !== 'app' && how !== 'inside') {
+    if (how === 'restore') return;     // don't open a window every time the app starts
+    if (await openWindowsPlayer()) return;
+  }
   if (!inElectron) {
     if (how === 'restore') return;     // don't pop a browser tab every time the window loads
     window.open(url, '_blank', 'noopener');
@@ -54,4 +79,5 @@ function openMusic(how) {
 
 export function initMusic() {
   command('music.open', 'Music', [], (how) => openMusic(how));
+  command('music.inside', 'Music: play inside the app', [], () => openMusic('inside'));
 }
