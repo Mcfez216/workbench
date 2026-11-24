@@ -10,6 +10,7 @@ import { sidebar, tabs, command, runCommand } from './layout.js';
 import { renderMarkdown, slug } from './markdown.js';
 import { openFile } from './editor.js';
 import { pasteToTerminal } from './terminal.js';
+import { decorateNote, onNoteClick, openGraph } from './notes.js';
 
 let notes = [];
 let vaults = [];                 // [{ path, name, count, error, start }] from the backend
@@ -150,15 +151,18 @@ function fill(t) {
   t.page.innerHTML = html;
   const tools = h('div', { class: 'page-tools' },
     h('button', { class: 'btn', type: 'button', title: 'Edit this note as text', onclick: () => openFile(t.note.path) }, 'Edit note'),
-    h('button', { class: 'btn', type: 'button', title: 'Reload from disk', onclick: () => reload(t) }, 'Reload'));
+    h('button', { class: 'btn', type: 'button', title: 'Reload from disk', onclick: () => reload(t) }, 'Reload'),
+    h('button', { class: 'btn', type: 'button', title: 'This note in the graph of notes (Ctrl+Alt+G)', onclick: () => openGraph(t.note.vault, t.note.path) }, 'Graph'));
   t.page.prepend(tools);
   if (t.page.parentElement) t.page.parentElement.scrollTop = top;
   t.page.onclick = (e) => onPageClick(t, e);
+  decorateNote(t);
 }
 
 async function onPageClick(t, e) {
   const a = e.target.closest('a, button');
   if (!a) return;
+  if (await onNoteClick(t, e)) return;
   if (a.classList.contains('wikilink')) {
     e.preventDefault();
     if (!a.dataset.note) { const target = t.page.querySelector('#' + CSS.escape(slug(a.dataset.heading))); if (target) target.scrollIntoView(); return; }
@@ -237,6 +241,10 @@ export function initGuides() {
       el.append(
         h('div', { class: 'side-title' }, h('span', {}, 'Guides'), h('span', { class: 'side-tools' },
           h('button', { type: 'button', title: 'Search inside every note (Enter in the filter box)', onclick: () => filter.value.trim() && searchGuides(filter.value.trim()) }, 'Find'),
+          h('button', { type: 'button', title: 'New note (Ctrl+Alt+N)', onclick: () => runCommand('notes.new') }, 'New'),
+          h('button', { type: 'button', title: "Today's note (Ctrl+Alt+D)", onclick: () => runCommand('notes.daily') }, 'Day'),
+          h('button', { type: 'button', title: 'Graph of how your notes link (Ctrl+Alt+G)', onclick: () => runCommand('notes.graph') }, 'Graph'),
+          h('button', { type: 'button', title: 'Every tag', onclick: () => runCommand('notes.tags') }, '#'),
           h('button', { type: 'button', title: 'Add a vault: another folder of notes', onclick: () => runCommand('vault.add') }, '+'),
           h('button', { type: 'button', title: 'Reload the vaults', onclick: () => loadNotes() }, '↻'))),
         h('div', { class: 'pad' }, filter),

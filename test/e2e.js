@@ -415,6 +415,34 @@ async function main() {
       await page.waitForFunction(() => /C\+\+: /.test(document.querySelector('.statusline').innerText));
     });
 
+    await step('notes: what links here, the graph, today\'s note, a box ticked in the file, a tag', async () => {
+      const foot = page.locator('.tab-page.active .note-foot');
+      await foot.waitFor();
+      assert.match(await foot.innerText(), /Linked from 1 note[\s\S]*Start Here[\s\S]*My own take/);
+      await foot.locator('button', { hasText: 'Show in graph' }).click();
+      await page.waitForSelector('.tab-page.active .graph-node.focus');
+      assert.strictEqual(await page.locator('.tab-page.active .graph-node').count(), 2);
+      await page.waitForTimeout(400);
+      await shot('16-graph');
+      await page.locator('.tab-page.active .graph-node', { hasText: 'Start Here' }).click();
+      await page.waitForSelector('.tab-page.active h1:has-text("My notes")');
+      // today's note, made in the vault you're reading; tick its first box
+      await page.keyboard.press('F1');
+      await page.locator('.side-view:not([hidden]) .side-tools button', { hasText: 'Day' }).click();
+      await page.locator('.tab', { hasText: /^\d{4}-\d\d-\d\d/ }).first().waitFor();
+      const daily = (() => { for (const v of ['Scratch Notes', 'C-Path']) { const d = path.join(process.env.HOME, 'Notes', v, 'Daily'); if (fs.existsSync(d)) return path.join(d, fs.readdirSync(d)[0]); } return null; })();
+      assert.ok(daily, 'Daily/<today>.md made');
+      await page.locator('.tab', { hasText: /^\d{4}-\d\d-\d\d/ }).first().click();
+      await page.locator('.tab-page.active[data-kind=guide] button.task').first().click();
+      await page.waitForFunction(() => document.querySelector('.tab-page.active[data-kind=guide] button.task.done'));
+      assert.match(fs.readFileSync(daily, 'utf8'), /- \[x\] Read one note/);
+      await page.locator('.tab-page.active[data-kind=guide] .note-foot a.tag', { hasText: '#daily' }).click();
+      await page.waitForSelector('.tab-page.active h2:has-text("#daily")');
+      // close today's note (page and editor) before it goes, so a reload doesn't look for it
+      while (await page.locator('.tab', { hasText: /^\d{4}-\d\d-\d\d/ }).count()) await page.locator('.tab', { hasText: /^\d{4}-\d\d-\d\d/ }).first().locator('.tab-close').click();
+      fs.rmSync(path.dirname(daily), { recursive: true, force: true });
+    });
+
     await step('the palette runs anything by name; New file makes a C program; the outline lists it', async () => {
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');

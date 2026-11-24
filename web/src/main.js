@@ -26,6 +26,7 @@ import { initTests } from './tests.js';
 import { initJudge } from './judge.js';
 import { initGit, refreshGit } from './git.js';
 import { initGuides, openGuide, loadNotes } from './guides.js';
+import { initNotes } from './notes.js';
 import { initRevise } from './revise.js';
 import { initIrc } from './irc.js';
 import { initMail } from './mail.js';
@@ -88,6 +89,7 @@ const MENUS = [
   ] },
   { label: 'Guides', hot: 'u', items: [
     { cmd: 'guides.show', label: 'Your vaults' }, { cmd: 'guides.search' }, { cmd: 'vault.add' }, { cmd: 'revise.open' }, { sep: true },
+    { cmd: 'notes.new' }, { cmd: 'notes.daily' }, { cmd: 'notes.graph' }, { cmd: 'notes.tags' }, { cmd: 'notes.backlinks' }, { cmd: 'notes.random' }, { sep: true },
     { cmd: 'guides.open', args: ['CPP Start Here'], label: 'CPP Start Here' },
     { cmd: 'guides.open', args: ['Projects/Start Here'], label: 'Projects: Start Here' },
     { cmd: 'guides.open', args: ['CPP Phase Gates'], label: 'Phase Gates' },
@@ -251,6 +253,9 @@ async function restoreSession() {
       else if (s.kind === 'sandbox') openSandbox();
       else if (s.kind === 'judge') runCommand('judge.open');
       else if (s.kind === 'revise') runCommand('revise.open');
+      else if (s.kind === 'graph') { const { openGraph } = await import('./notes.js'); await openGraph(s.vault, s.focus); }
+      else if (s.kind === 'tag') { const { openTag } = await import('./notes.js'); await openTag(s.tag); }
+      else if (s.kind === 'tags') runCommand('notes.tags');
       else if (s.kind === 'irc') runCommand('irc.open');
       else if (s.kind === 'mail') runCommand('mail.open');
       else if (s.kind === 'music') runCommand('music.open', 'restore');
@@ -285,7 +290,7 @@ async function boot() {
   const root = document.getElementById('app');
   root.textContent = '';
   buildShell(root, FKEYS);
-  initEditorCommands(); initFiles(); initExercises(); initOutline(); initTerminal(); initBuild(); initTests(); initJudge(); initGit(); initGuides(); initRevise();
+  initEditorCommands(); initFiles(); initExercises(); initOutline(); initTerminal(); initBuild(); initTests(); initJudge(); initGit(); initGuides(); initNotes(); initRevise();
   await initIrc(); initMail(); initMusic(); initSettings(); initWelcome(); initPalette(); initNewStuff(); initStart();
   initComfort(); initProgress(); initMemviz(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
   applyComfort(cfg);

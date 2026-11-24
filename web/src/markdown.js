@@ -70,24 +70,40 @@ md.renderer.rules.wikilink = (toks, i) => {
   return `<a href="#" class="wikilink" data-note="${esc(note)}" data-heading="${esc(heading)}">${esc(text)}</a>`;
 };
 
+// ---- #tags in the text (not #include, not C#, not headings): click to see every note with it
+md.inline.ruler.after('wikilink', 'hashtag', (state, silent) => {
+  const s = state.src, pos = state.pos;
+  if (s.charCodeAt(pos) !== 0x23) return false;
+  if (pos > 0 && !/[\s(]/.test(s[pos - 1])) return false;
+  const m = s.slice(pos + 1).match(/^[\p{L}_][\p{L}\p{N}_/-]*/u);
+  if (!m) return false;
+  if (!silent) { const t = state.push('hashtag', '', 0); t.meta = { tag: m[0].replace(/\/$/, '') }; }
+  state.pos = pos + 1 + m[0].length;
+  return true;
+});
+md.renderer.rules.hashtag = (toks, i) => `<a href="#" class="tag" data-tag="${esc(toks[i].meta.tag.toLowerCase())}">#${esc(toks[i].meta.tag)}</a>`;
+
 // ---- headings get ids so [[Note#Heading]] can scroll to them
 md.core.ruler.push('heading_ids', (state) => {
   const toks = state.tokens;
   for (let i = 0; i < toks.length; i++) if (toks[i].type === 'heading_open') toks[i].attrSet('id', slug(toks[i + 1].content));
 });
 
-// ---- - [ ] / - [x] task boxes (shown, not clickable: the vault is the record)
+// ---- - [ ] / - [x] task boxes: click one to tick it in the note itself
 md.core.ruler.push('tasks', (state) => {
   const toks = state.tokens;
+  state.env.tasks = state.env.tasks || 0;
   for (let i = 2; i < toks.length; i++) {
     const t = toks[i];
     if (t.type !== 'inline' || toks[i - 1].type !== 'paragraph_open' || toks[i - 2].type !== 'list_item_open') continue;
     const first = t.children[0];
-    const m = first && first.type === 'text' && first.content.match(/^\[([ xX])\] /);
+    const m = first && first.type === 'text' && first.content.match(/^\[([ xX])\](?: |$)/);
     if (!m) continue;
     first.content = first.content.slice(4);
     const box = new state.Token('html_inline', '', 0);
-    box.content = `<span class="task${m[1] === ' ' ? '' : ' done'}" aria-hidden="true">[${m[1] === ' ' ? ' ' : 'x'}]</span> `;
+    const done = m[1] !== ' ';
+    const label = esc(first.content.trim().slice(0, 80));
+    box.content = `<button type="button" class="task${done ? ' done' : ''}" data-task="${state.env.tasks++}" data-text="${label}" role="checkbox" aria-checked="${done}" title="${done ? 'Done. Click to untick' : 'Click to tick it off (saved in the note)'}">[${done ? 'x' : ' '}]</button> `;
     t.children.unshift(box);
     toks[i - 2].attrJoin('class', 'task-item');
   }
@@ -123,7 +139,7 @@ md.renderer.rules.link_open = (toks, i, opts, env, self) => {
 export function renderMarkdown(src) {
   let text = src.replace(/^---\n[\s\S]*?\n---\n?/, '');           // frontmatter
   const fm = (src.match(/^---\n([\s\S]*?)\n---/) || [])[1] || '';
-  const env = { blocks: [] };
+  const env = { blocks: [], tasks: 0 };
   const html = md.render(text, env);
   return { html, blocks: env.blocks, frontmatter: fm };
 }
