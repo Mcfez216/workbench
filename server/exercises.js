@@ -125,7 +125,8 @@ function compilerFor(ex) {
   const b = config.get().build;
   return ex.lang === 'cpp' ? { cc: b.compiler || 'g++', std: b.std || 'c++20' } : { cc: b.cCompiler || 'gcc', std: b.cStd || 'c17' };
 }
-const SAN = require('./platform').sanitizerFlags(['-g', '-O0', '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer']);
+// (for the C++ compiler in Settings: on Windows gcc has no sanitizer runtimes)
+const SAN = require('./platform').sanitizerFlags(['-g', '-O0', '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer'], { cc: config.get().build.compiler });
 const RUN_ENV = { ASAN_OPTIONS: 'detect_leaks=1:abort_on_error=0', UBSAN_OPTIONS: 'print_stacktrace=1:halt_on_error=1', ...require('./platform').runEnv(SAN) };
 
 // ------------------------------------------------------------------ check
@@ -164,7 +165,7 @@ async function checkFunctions(ex, upto) {
   const ext = ex.lang === 'cpp' ? 'cpp' : 'c';
   const h = path.join(work, `tests.${ext}`);
   fs.writeFileSync(h, src);
-  const exe = path.join(work, 'tests');
+  const exe = path.join(work, require('./platform').exe('tests'));
   const { cc, std } = compilerFor(ex);
   const c = await execStream({ cmd: cc, args: [`-std=${std}`, '-Wall', '-Wextra', '-Wno-unused-parameter', ...SAN, '-I', dir, '-o', exe, fileOf(ex), h, ...(ext === 'c' ? ['-lm'] : [])], cwd: dir, title: `exercise: ${ex.title}` });
   // the test program's own lines are ours, not yours: keep only problems in your files
@@ -212,7 +213,7 @@ async function checkProgram(ex, step) {
   const dir = dirOf(ex);
   const work = path.join(dir, '.check');
   fs.mkdirSync(work, { recursive: true });
-  const exe = path.join(work, 'program');
+  const exe = path.join(work, require('./platform').exe('program'));
   const { cc, std } = compilerFor(ex);
   const c = await execStream({ cmd: cc, args: [`-std=${std}`, '-Wall', '-Wextra', ...SAN, '-o', exe, fileOf(ex), ...(ex.lang === 'c' ? ['-lm'] : [])], cwd: dir, title: `exercise: ${ex.title}` });
   if (c.code !== 0) return { compiled: false, problems: c.problems, results: [{ step, passed: false, fails: [] }] };
@@ -265,7 +266,7 @@ async function buildCtf(ex) {
   fs.mkdirSync(path.dirname(src), { recursive: true });
   fs.writeFileSync(src, ex.source);
   if (ex.showSource) fs.writeFileSync(path.join(dir, `${ex.file}.c`), ex.source);
-  const exe = fileOf(ex);
+  const exe = require('./platform').exe(fileOf(ex));
   if (fs.existsSync(exe)) return;
   const r = await execStream({ cmd: config.get().build.cCompiler || 'gcc', args: [...(ex.build || []), '-o', exe, src], cwd: dir, quiet: true, title: `build ${ex.file}` });
   if (r.code !== 0) throw new Error(`Couldn't build ${ex.file}: ${r.output.slice(0, 400)}`);

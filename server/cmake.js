@@ -60,6 +60,12 @@ async function configure({ root, fresh = false }) {
   const build = buildDir(root);
   ensureQuery(build);
   const args = ['-S', root, '-B', build, `-DCMAKE_BUILD_TYPE=${cfg.build.buildType || 'Debug'}`, '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON', ...(fresh ? ['--fresh'] : [])];
+  // Windows: CMake would look for Visual Studio. The first configure picks
+  // Ninja and the compilers in Settings (clang from llvm-mingw by default);
+  // a build folder keeps what it was made with.
+  if (require('./platform').WIN && (fresh || !fs.existsSync(path.join(build, 'CMakeCache.txt')))) {
+    args.push('-G', 'Ninja', `-DCMAKE_C_COMPILER=${cfg.build.cCompiler || 'clang'}`, `-DCMAKE_CXX_COMPILER=${cfg.build.compiler || 'clang++'}`);
+  }
   const r = await execStream({ cmd: 'cmake', args, cwd: root, title: fresh ? 'CMake: fresh configure' : 'CMake: configure', source: 'cmake' });
   model.delete(root);
   if (r.code === 0) api.broadcast('cmake.changed', { root });

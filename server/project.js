@@ -102,9 +102,10 @@ endif()
 # Warnings on everywhere; AddressSanitizer and UBSan in Debug builds
 add_compile_options(-Wall -Wextra -Wpedantic${c ? ' -Wshadow -Wstrict-prototypes' : ' -Wshadow -Wconversion'})
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    if(CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
-        # OpenBSD's clang has no ASan: UBSan stops the program instead (trap),
-        # and the workbench runs it with MALLOC_OPTIONS=S to check the heap
+    if(CMAKE_SYSTEM_NAME STREQUAL "OpenBSD" OR (MINGW AND CMAKE_${c ? 'C' : 'CXX'}_COMPILER_ID STREQUAL "GNU"))
+        # OpenBSD's clang and gcc on Windows have no ASan: UBSan stops the
+        # program instead (trap); on OpenBSD the workbench also runs it with
+        # MALLOC_OPTIONS=S to check the heap
         add_compile_options(-fsanitize=undefined -fsanitize-trap=undefined -fno-omit-frame-pointer)
         add_link_options(-fsanitize=undefined -fsanitize-trap=undefined)
     else()

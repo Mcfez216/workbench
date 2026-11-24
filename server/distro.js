@@ -21,6 +21,7 @@ function readOsRelease(file = '/etc/os-release') {
 
 function familyOf(rel) {
   if (require('./platform').OPENBSD) return 'openbsd';
+  if (require('./platform').WIN) return 'windows';
   const ids = `${rel.ID || ''} ${rel.ID_LIKE || ''}`.toLowerCase();
   if (/\b(debian|ubuntu)\b/.test(ids)) return 'debian';
   if (/\b(fedora|rhel|centos)\b/.test(ids)) return 'fedora';
@@ -88,6 +89,11 @@ function installLine(pkgs) {
 
 // "sudo apt install clangd", for an error message
 function installHint(tool) {
+  if (FAMILY === 'windows') {
+    if (tool === 'valgrind') return 'Valgrind doesn\'t exist for Windows: the sanitizers find the same bugs (or use the WSL version)';
+    if (['dosbox-x', 'owcc', 'wslview', 'secret-tool', 'gio', 'man'].includes(tool)) return 'not part of the Windows version';
+    return 'run "Install on Windows (no WSL).cmd" again: it sets up the toolchain in %LOCALAPPDATA%\\CppPathWorkbenchNative\\tools';
+  }
   if (FAMILY === 'openbsd') {
     if (tool === 'g++' || tool === 'gcc') return 'OpenBSD\'s compiler is clang: choose clang++ / clang in Settings → Build (or doas pkg_add g++, which installs as eg++)';
     if (tool === 'gdb' || tool === 'egdb') return 'doas pkg_add gdb (it installs as egdb, which the app uses)';

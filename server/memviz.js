@@ -124,7 +124,7 @@ async function trace({ source, lang = 'c', input = '' }) {
   // stdout unbuffered, so what the program prints lines up with the step that printed it
   const init = path.join(dir, 'viz-init.c');
   fs.writeFileSync(init, '#include <stdio.h>\n__attribute__((constructor)) static void cpw_unbuffered(void) { setvbuf(stdout, NULL, _IONBF, 0); }\n');
-  const exe = path.join(dir, 'viz');
+  const exe = path.join(dir, require('./platform').exe('viz'));
   const cc = tc.lang === 'c' ? tc.cc : tc.cc === 'clang++' ? 'clang' : 'gcc';   // the C compiler, for the init file
   const o1 = await execStream({ cmd: cc, args: ['-c', '-o', path.join(dir, 'viz-init.o'), init], cwd: dir, quiet: true });
   if (o1.code !== 0) throw new Error(o1.output);

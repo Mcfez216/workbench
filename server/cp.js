@@ -71,7 +71,7 @@ async function judge({ file, cases, timeLimitMs }) {
   if (cases) saveCases({ file, cases, timeLimitMs });
   const tl = Math.max(100, Math.min(Number(timeLimitMs) || cfg.judge.timeLimitMs || 2000, 60000));
   const list = cases || getCases({ file }).cases;
-  const exe = config.dataPath('cp-bin', path.basename(file).replace(/\.\w+$/, ''));
+  const exe = require('./platform').exe(config.dataPath('cp-bin', path.basename(file).replace(/\.\w+$/, '')));
   const flags = cfg.judge.flags && cfg.judge.flags.length ? cfg.judge.flags : ['-O2', '-Wall'];
   const c = await execStream({ cmd: tc.cc, args: [`-std=${tc.std}`, ...flags, '-o', exe, file, ...(tc.lang === 'c' ? ['-lm'] : [])],
     cwd: path.dirname(file), title: `judge: compile ${path.basename(file)}` });

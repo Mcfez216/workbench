@@ -154,7 +154,7 @@ function dataPath(...parts) {
 function expand(p) {
   if (!p) return p;
   if (p === '~') return HOME;
-  if (p.startsWith('~/')) return path.join(HOME, p.slice(2));
+  if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(HOME, p.slice(2));
   return p;
 }
 

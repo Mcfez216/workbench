@@ -31,7 +31,7 @@ async function scanVault(v) {
       if (e.isDirectory()) await walk(p);
       else if (e.name.endsWith('.md')) {
         const text = await fsp.readFile(p, 'utf8');
-        const rel = path.relative(v.path, d);
+        const rel = path.relative(v.path, d).split(path.sep).join('/');   // Phase 1/..., also on Windows
         const phase = (text.match(/^phase:\s*(\d+)/m) || [])[1] ?? (rel.match(/^Phase (\d+)\b/) || [])[1];
         notes.push({
           name: e.name.slice(0, -3), path: p,
@@ -75,16 +75,18 @@ async function list() { return scan(); }
 // so two vaults can both have a "Start Here".
 async function resolveName(name, vault) {
   if (!cache || Date.now() - cache.at > 5000) await scan();
-  const want = name.toLowerCase().replace(/\.md$/, '');
+  const want = name.toLowerCase().replace(/\\/g, '/').replace(/\.md$/, '');
   const v = vault ? path.normalize(config.expand(vault)) : null;
   const pools = v ? [cache.notes.filter((n) => n.vault === v), cache.notes] : [cache.notes];
   for (const pool of pools) {
     const hit = pool.find((n) => n.name.toLowerCase() === want)
-      || pool.find((n) => path.relative(n.vault, n.path).toLowerCase().replace(/\.md$/, '') === want);
+      || pool.find((n) => relName(n) === want);
     if (hit) return hit;
   }
   return null;
 }
+// "Phase 1/pointers": a note's name inside its vault, lower case, with /
+function relName(n) { return path.relative(n.vault, n.path).split(path.sep).join('/').toLowerCase().replace(/\.md$/, ''); }
 
 async function read({ name, file, vault }) {
   const n = file ? { path: file, name: path.basename(file, '.md') } : await resolveName(name, vault);
@@ -226,7 +228,7 @@ function resolveIn(notes, target, vault) {
   const pools = [notes.filter((n) => n.vault === vault), notes];
   for (const pool of pools) {
     const hit = pool.find((n) => n.name.toLowerCase() === want)
-      || pool.find((n) => path.relative(n.vault, n.path).toLowerCase().replace(/\.md$/, '') === want);
+      || pool.find((n) => relName(n) === want);
     if (hit) return hit;
   }
   return null;
@@ -270,7 +272,7 @@ async function backlinks({ file }) {
   for (const n of notes) {
     if (n.path === p || !n.out.includes(p)) continue;
     const lines = stripFences(n.text).split('\n');
-    const names = [me.name.toLowerCase(), path.relative(me.vault, me.path).toLowerCase().replace(/\.md$/, '')];
+    const names = [me.name.toLowerCase(), relName(me)];
     const line = lines.find((l) => [...l.matchAll(/\[\[([^\]\n]+)\]\]/g)].some((m) => names.includes(m[1].replace(/\\\|/g, '|').split('|')[0].split('#')[0].trim().toLowerCase())));
     from.push({ ...brief(n), line: (line || '').trim().slice(0, 240) });
   }

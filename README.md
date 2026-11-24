@@ -83,7 +83,14 @@ autism, or just tired). All built in; all optional.
 
 ## Install
 
-**Windows:** double-click **`Install on Windows.cmd`** in the app's folder.
+**Windows** has two versions:
+
+- **`Install on Windows.cmd`** (WSL): the full Linux toolchain inside WSL,
+  including Valgrind. Below.
+- **`Install on Windows (no WSL).cmd`**: runs directly on Windows, for when
+  WSL isn't allowed or won't install. [Windows without WSL](#windows-without-wsl).
+
+**Windows (WSL):** double-click **`Install on Windows.cmd`** in the app's folder.
 It runs inside WSL (Ubuntu on Windows), so the sanitizers, Valgrind, gdb and
 the terminal work exactly as on Linux, and you never have to type a Linux
 command. It asks before each big step:
@@ -160,6 +167,56 @@ No window? `npm run web` starts the same app and prints an address to open
 in a browser (in WSL, your Windows browser works). Everything works there
 except the Music tab and the few keys a browser keeps for itself (Ctrl+W,
 Ctrl+N, Ctrl+T, Ctrl+Shift+W).
+
+### Behind a company proxy
+
+Both Windows installers find the proxy the way your browser does (Windows'
+proxy settings, including a setup script, then WinHTTP's); `-Proxy
+http://host:port` picks one, `-NoProxy` none. With WSL, the setup points apt,
+curl, npm, git and Electron's download at it (`scripts/wsl-proxy.sh`; a proxy
+on Windows' localhost is reached through the Windows host). If the proxy
+inspects HTTPS, so that Ubuntu sees "certificate verify failed", the root
+certificates Windows trusts are added to Ubuntu's (only then). Everything is
+saved in `~/.config/cpp-path-workbench/proxy.env`, which your terminals and
+the launcher read; delete it to stop. A proxy that wants a login (HTTP 407)
+needs a helper such as [px](https://github.com/genotrance/px), which signs in
+with your Windows account: run it, then install with `-Proxy http://localhost:3128`.
+
+### Windows without WSL
+
+Double-click **`Install on Windows (no WSL).cmd`**. No administrator rights:
+everything goes in `%LOCALAPPDATA%\CppPathWorkbenchNative`. It downloads a
+portable toolchain, each piece a pinned version checked against the SHA-256
+its project publishes:
+
+| | |
+|---|---|
+| llvm-mingw | clang and clang++ with AddressSanitizer and UBSan (the default compilers) |
+| w64devkit | gcc, **gdb** (debugging and the memory view), make, and a small Unix shell (busybox: `ls`, `grep`, `cat`...) so the guides' commands work in the terminal |
+| CMake, Ninja, MinGit | projects and git |
+| Node.js | the setup and the app's helpers |
+
+then the app and its Electron window, and puts **C++ Path Workbench
+(Windows)** in the Start menu. Downloads go through the proxy with your
+Windows sign-in; if one is blocked, the installer says where to download it
+by hand and where to put it. *Uninstall C++ Path Workbench* removes it all
+(your settings, notes and code stay).
+
+What's different from Linux and WSL:
+
+- **No Valgrind** (it doesn't exist for Windows) and **no LeakSanitizer**:
+  AddressSanitizer still finds overflows and use-after-free; leaks show up
+  in the exercises' tests but not as a sanitizer report.
+- gcc on Windows has no sanitizer runtimes, so with gcc chosen, "sanitizers
+  on" means UBSan stopping the program (*Illegal instruction*). clang, the
+  default, has both.
+- The terminal is w64devkit's shell (PowerShell if it's missing), through
+  Windows' ConPTY.
+- Passwords (IRC, mail) are encrypted with Windows' DPAPI, readable only by
+  your Windows account.
+- The security lab's binary inspector reads Linux programs (ELF) only.
+- clangd, clang-tidy and clang-format come with llvm-mingw only in some
+  releases; without them the editor still works, with less help as you type.
 
 ### WSL notes
 

@@ -13,6 +13,10 @@
 //   server -> client  {id, r: result} | {id, e: "error message"}
 //   server -> client  {ev: "module.event", d: {...}}   (pushed to every window)
 
+// Windows: the portable toolchain first on PATH, before anything looks for a compiler
+const platform = require('./platform');
+platform.setupPath();
+
 const http = require('http');
 const net = require('net');
 // Node tries a server's IPv6 and IPv4 addresses in turn, by default giving
@@ -41,8 +45,11 @@ let idleTimer = null, everConnected = false;
 const IDLE_MS = Math.max(2, Number(process.env.CPW_EXIT_WHEN_CLOSED) || 20) * 1000;
 
 function register(name, fn) { handlers.set(name, fn); }
+// Windows: paths reach the window as C:/Users/... (see platform.slashes);
+// terminal output is passed through untouched
+const toWindow = platform.WIN ? (ev, d) => (ev === 'pty.data' ? d : platform.slashes(d)) : (ev, d) => d;
 function broadcast(ev, d) {
-  const msg = JSON.stringify({ ev, d });
+  const msg = JSON.stringify({ ev, d: toWindow(ev, d) });
   for (const ws of sockets) if (ws.readyState === 1) ws.send(msg);
 }
 
@@ -153,7 +160,7 @@ function startServer({ port = 0, host = '127.0.0.1' } = {}) {
         if (!fn) return ws.send(JSON.stringify({ id: msg.id, e: `Unknown method ${msg.m}` }));
         try {
           const r = await fn(msg.p || {});
-          ws.send(JSON.stringify({ id: msg.id, r: r === undefined ? null : r }));
+          ws.send(JSON.stringify({ id: msg.id, r: r === undefined ? null : toWindow(msg.m, r) }));
         } catch (err) {
           ws.send(JSON.stringify({ id: msg.id, e: err && err.message ? err.message : String(err) }));
         }

@@ -74,15 +74,8 @@ function cancel({ runId }) {
   return !!c;
 }
 
-function which(cmd, extraDirs = []) {
-  const dirs = [...extraDirs, ...(process.env.PATH || '').split(':')];
-  for (const d of dirs) {
-    if (!d) continue;
-    const p = path.join(d, cmd);
-    try { fs.accessSync(p, fs.constants.X_OK); if (fs.statSync(p).isFile()) return p; } catch (e) { /* next */ }
-  }
-  return null;
-}
+// (on Windows: ; between folders, and clang finds clang.exe)
+function which(cmd, extraDirs = []) { return platform.which(cmd, extraDirs); }
 
 // ------------------------------------------------------------------ running programs
 // A program runs in its own terminal tab, so it can read your typing
@@ -123,7 +116,7 @@ function sanitizerWatch(cwd, title) {
 const CXX_EXT = /\.(cpp|cc|cxx|c\+\+|C)$/;
 const C_EXT = /\.c$/;
 const SOURCE_EXT = /\.(cpp|cc|cxx|c\+\+|C|c)$/;
-function outputFor(file) { return file.replace(/\.[^./]+$/, ''); }
+function outputFor(file) { return platform.exe(file.replace(/\.[^./\\]+$/, '')); }
 function isC(file) { return C_EXT.test(file); }
 
 // The compiler and standard for a language, from Settings
@@ -142,11 +135,11 @@ const NO_SANITIZERS = (flags) => flags.filter((f) => !/^-fsanitize/.test(f));
 function singleArgs(file, variant = 'run') {
   const cfg = config.get();
   const tc = toolchain(isC(file) ? 'c' : 'cpp');
-  let flags = platform.sanitizerFlags([...cfg.build.sandboxFlags]);
+  let flags = platform.sanitizerFlags([...cfg.build.sandboxFlags], { cc: tc.cc });
   if (variant === 'valgrind') flags = [...NO_SANITIZERS(flags).filter((f) => !/^-O/.test(f)), '-O0', '-g'];
   if (variant === 'debug') flags = [...flags.filter((f) => !/^-O/.test(f)), '-O0', '-g'];
   if (variant === 'release') flags = [...NO_SANITIZERS(flags).filter((f) => !/^-O|^-g$/.test(f)), '-O2'];
-  const out = outputFor(file) + (variant === 'valgrind' ? '.vg' : variant === 'release' ? '.release' : '');
+  const out = platform.exe(outputFor(file).replace(/\.exe$/i, '') + (variant === 'valgrind' ? '.vg' : variant === 'release' ? '.release' : ''));
   const libs = tc.lang === 'c' ? ['-lm'] : [];
   return { tc, out, flags, args: [`-std=${tc.std}`, ...flags, '-o', out, file, ...libs] };
 }
@@ -201,12 +194,12 @@ async function sandboxRun({ source, compiler, std, lang = 'cpp', tool }) {
   fs.writeFileSync(file, source);
   const vg = tool === 'valgrind';
   if (vg && !which('valgrind')) throw new Error(`Valgrind is not installed (${hint('valgrind')})`);
-  const flags = vg ? [...NO_SANITIZERS(cfg.build.sandboxFlags).filter((f) => !/^-O/.test(f)), '-O0', '-g'] : platform.sanitizerFlags(cfg.build.sandboxFlags);
-  const out = path.join(dir, vg ? 'scratch-vg' : 'scratch');
+  const flags = vg ? [...NO_SANITIZERS(cfg.build.sandboxFlags).filter((f) => !/^-O/.test(f)), '-O0', '-g'] : platform.sanitizerFlags(cfg.build.sandboxFlags, { cc: tc.cc });
+  const out = path.join(dir, platform.exe(vg ? 'scratch-vg' : 'scratch'));
   const libs = tc.lang === 'c' ? ['-lm'] : [];
   const res = await execStream({ cmd: tc.cc, args: [`-std=${tc.std}`, ...flags, '-o', out, file, ...libs], cwd: dir, title: `sandbox: ${tc.cc} -std=${tc.std}` });
   if (res.code !== 0) return { ok: false, ...res, file, lang: tc.lang, output: undefined };
-  const term = runProgram({ cwd: dir, command: vg ? `${VALGRIND.join(' ')} ./scratch-vg` : './scratch', title: vg ? 'sandbox: valgrind' : 'sandbox: scratch', flags });
+  const term = runProgram({ cwd: dir, command: vg ? `${VALGRIND.join(' ')} ./scratch-vg` : `./${path.basename(out)}`, title: vg ? 'sandbox: valgrind' : 'sandbox: scratch', flags });
   return { ok: true, ...res, file, lang: tc.lang, output: undefined, terminal: term };
 }
 
@@ -367,7 +360,8 @@ function tools() {
   const names = ['gcc', 'g++', 'clang', 'clang++', 'cmake', 'ctest', 'ninja', 'gdb', ...(platform.BSD ? ['egdb'] : []), 'clangd', 'clang-tidy', 'clang-format', 'cppcheck', 'valgrind', 'git', 'rg'];
   const out = {};
   for (const n of names) out[n] = !!which(n);
-  out['secret-tool'] = !!which('secret-tool');
+  out['secret-tool'] = platform.WIN ? true : !!which('secret-tool');   // Windows keeps passwords with DPAPI
+  if (platform.WIN) { out.valgrind = false; out.sh = !!which('sh'); }
   const dos = dosTools();
   out.owcc = !!dos.owcc; out['dosbox-x'] = !!dos.dosbox;
   return out;

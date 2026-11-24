@@ -17,7 +17,7 @@ const until = async (fn, ms = 10000) => { for (let i = 0; i < ms / 100 && !fn();
 const results = [];
 async function test(name, fn) {
   try { await fn(); results.push([true, name]); console.log(`  ok    ${name}`); }
-  catch (e) { results.push([false, name]); console.log(`  FAIL  ${name}\n        ${e.stack.split('\n').slice(0, 3).join('\n        ')}`); }
+  catch (e) { results.push([false, name]); console.log(`  FAIL  ${name}\n        ${e.stack.split("\n").slice(0, process.env.CPW_LONG ? 30 : 3).join("\n        ")}`); }
 }
 
 (async () => {
@@ -601,7 +601,7 @@ async function test(name, fn) {
     assert.match(out.gpp, /clang\+\+ \/ clang in Settings/);
     assert.strictEqual(out.clang, 'part of OpenBSD itself');
     const cm = fs.readFileSync(path.join(__dirname, '..', 'server', 'project.js'), 'utf8');
-    assert.match(cm, /CMAKE_SYSTEM_NAME STREQUAL "OpenBSD"\)\n\s+# [^\n]*\n\s+# [^\n]*\n\s+add_compile_options\(-fsanitize=undefined -fsanitize-trap=undefined/);
+    assert.match(cm, /CMAKE_SYSTEM_NAME STREQUAL "OpenBSD" OR \(MINGW AND [^\n]*"GNU"\)\)\n(\s+# [^\n]*\n)+\s+add_compile_options\(-fsanitize=undefined -fsanitize-trap=undefined/);
     // the window: Chromium in app mode with its own profile (inside ~/.config/chromium: unveil)
     const bin = path.join(HOME, 'fake-browsers');
     fs.mkdirSync(bin, { recursive: true });
@@ -719,6 +719,81 @@ async function test(name, fn) {
       assert.strictEqual(r.text, 'int main() {\n    return 0;\n}\n');
     });
   }
+
+  await test('windows without WSL: clang.exe through PATHEXT, the toolchain on PATH, sanitizers, C:/ paths, DPAPI, a real terminal', async () => {
+    const platform = require('../server/platform');
+    const { execFileSync } = require('child_process');
+    const world = fs.mkdtempSync(path.join(HOME, 'win-'));
+    const bin = path.join(world, 'bin');
+    fs.mkdirSync(bin);
+    for (const f of ['clang++.EXE', 'sh.exe', 'notes.txt']) fs.writeFileSync(path.join(bin, f), '');
+    const env = { PATH: `${path.join(world, 'nowhere')};${bin}`, PATHEXT: '.COM;.EXE;.BAT;.CMD' };
+    assert.strictEqual(platform.which('clang++', [], { platform: 'win32', env }), path.join(bin, 'clang++.EXE'));
+    assert.strictEqual(platform.which('sh', [], { platform: 'win32', env }), path.join(bin, 'sh.exe'));
+    assert.strictEqual(platform.which('notes', [], { platform: 'win32', env }), null, 'only programs');
+    assert.strictEqual(platform.which('clang++', [], { platform: 'linux', env }), null, 'Linux splits PATH on : and wants the exact name');
+    assert.deepStrictEqual([platform.exe('a/scratch', { platform: 'win32' }), platform.exe('x.exe', { platform: 'win32' }), platform.exe('a/scratch', { platform: 'linux' })], ['a/scratch.exe', 'x.exe', 'a/scratch']);
+    // clang: ASan and UBSan, no leak checker; gcc: UBSan trap mode only
+    const flags = ['-g', '-fsanitize=address,undefined', '-fno-sanitize-recover=all'];
+    assert.deepStrictEqual(platform.sanitizerFlags(flags, { platform: 'win32', cc: 'clang++' }), flags);
+    assert.deepStrictEqual(platform.sanitizerFlags(['-fsanitize=address,leak'], { platform: 'win32', cc: 'clang' }), ['-fsanitize=address']);
+    assert.deepStrictEqual(platform.sanitizerFlags(flags, { platform: 'win32', cc: 'g++' }), ['-g', '-fsanitize=undefined', '-fsanitize-trap=undefined']);
+    assert.deepStrictEqual(platform.runEnv(flags, { platform: 'win32' }), { ASAN_OPTIONS: 'detect_leaks=0:abort_on_error=0' });
+    // paths reach the window as C:/...; file contents and messages don't change
+    assert.deepStrictEqual(platform.slashes({ file: 'C:\\Users\\jo\\cpp-path\\main.cpp', list: [{ path: 'D:\\Notes\\C-Path' }], text: '#include <x>\nC:\\not\\a\\path', msg: 'error in C:\\x.cpp: oops', n: 3 }),
+      { file: 'C:/Users/jo/cpp-path/main.cpp', list: [{ path: 'D:/Notes/C-Path' }], text: '#include <x>\nC:\\not\\a\\path', msg: 'error in C:\\x.cpp: oops', n: 3 });
+    // the backend as if on Windows: the toolchain first on PATH, clang by default, hints
+    const tools = path.join(world, 'tools');
+    for (const d of ['llvm-mingw/bin', 'llvm-mingw/x86_64-w64-mingw32/bin', 'w64devkit/bin', 'node']) fs.mkdirSync(path.join(tools, d), { recursive: true });
+    const out = JSON.parse(execFileSync(process.execPath, ['-e', `
+      const p = require('./server/platform'), d = require('./server/distro');
+      const have = p.setupPath();
+      console.log(JSON.stringify({ have, path: process.env.PATH, cc: p.defaultCompilers(), fam: d.info().family, vg: d.installHint('valgrind'), gdb: d.installHint('gdb'),
+        secret: require('./server/secrets').dpapiFile('neomutt', 'jo@example.org') }));
+    `], { cwd: path.join(__dirname, '..'), env: { ...process.env, WORKBENCH_PLATFORM: 'win32', CPW_TOOLS: tools, PATH: 'C:\\Windows\\System32' }, encoding: 'utf8' }));
+    assert.deepStrictEqual(out.have.map((d) => path.relative(tools, d)), ['llvm-mingw/bin', 'llvm-mingw/x86_64-w64-mingw32/bin', 'w64devkit/bin', 'node'], 'only the folders that are there, llvm-mingw first');
+    assert.strictEqual(out.path, [...out.have, 'C:\\Windows\\System32'].join(';'));
+    assert.deepStrictEqual(out.cc, { compiler: 'clang++', cCompiler: 'clang' });
+    assert.strictEqual(out.fam, 'windows');
+    assert.match(out.vg, /doesn't exist for Windows: the sanitizers/);
+    assert.match(out.gdb, /Install on Windows \(no WSL\)\.cmd" again/);
+    assert.match(out.secret, /secrets[\\/][0-9a-f]{32}\.dpapi$/, 'a hashed name: the address isn\'t in the file name');
+    // passwords go to PowerShell on stdin, never on its command line
+    const sec = fs.readFileSync(path.join(__dirname, '..', 'server', 'secrets.js'), 'utf8');
+    assert.match(sec, /\[Console\]::In\.ReadToEnd\(\)/);
+    assert.match(sec, /p\.stdin\.end\(input === undefined \? '' : input\)/);
+    assert.match(sec, /spawn\('powershell\.exe', \['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script\]/, 'only the fixed script on the command line');
+    assert.match(sec, /await powershell\(PS_STORE, f, secret\)/);
+    // a real terminal through node-pty (what Windows uses, as ConPTY), here on Linux
+    const term = execFileSync(process.execPath, ['-e', `
+      const pty = require('./server/pty'); let out = '';
+      pty.init({ register() {}, onExit: [], broadcast(k, d) { if (k === 'pty.data') out += d.data; if (k === 'pty.exit') { console.log(JSON.stringify({ out, code: d.code, b: pty.backend() })); process.exit(0); } } });
+      const t = pty.open({ cwd: ${JSON.stringify(world)}, cols: 77, argv: ['bash', '-c', 'read -r x; echo "got $x"; tput cols; exit 3'] });
+      setTimeout(() => pty.write({ id: t.id, data: 'hello\\r' }), 200);
+      setTimeout(() => { console.log(JSON.stringify({ out, timeout: true })); process.exit(1); }, 8000);
+    `], { cwd: path.join(__dirname, '..'), env: { ...process.env, CPW_PTY: 'node-pty' }, encoding: 'utf8' });
+    const t = JSON.parse(term);
+    assert.strictEqual(t.b, 'node-pty');
+    assert.match(t.out, /got hello\r\n77\r\n/);
+    assert.strictEqual(t.code, 3);
+    // the installer: plain ASCII with Windows line endings, pinned https downloads, every one checked
+    const ps = fs.readFileSync(path.join(__dirname, '..', 'windows', 'Install-Native.ps1'), 'utf8');
+    for (const f of ['windows/Install-Native.ps1', 'windows/Launch-Native.vbs', 'Install on Windows (no WSL).cmd']) {
+      const txt = fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+      assert.ok(/^[\x00-\x7f]*$/.test(txt), `${f}: ASCII only (Windows PowerShell 5.1 reads files without a BOM as ANSI)`);
+      assert.ok(!/[^\r]\n/.test(txt), `${f}: CRLF line endings`);
+    }
+    const urls = [...ps.matchAll(/Url = '([^']+)'/g)].map((m) => m[1]);
+    assert.strictEqual(urls.length, 6);
+    for (const u of urls) assert.match(u, /^https:\/\/(nodejs\.org\/dist|github\.com\/[\w-]+\/[\w-]+\/releases\/download)\//);
+    for (const m of ps.matchAll(/Url = 'https:\/\/github\.com\/([\w-]+\/[\w-]+)\/releases\/download\/([^/]+)\/([^']+)'; Repo = '([^']+)'; Tag = '([^']+)'/g)) {
+      assert.deepStrictEqual([m[4], m[5]], [m[1], m[2]], 'the checksum is looked up for the same release that is downloaded');
+    }
+    assert.match(ps, /Get-FileHash -Algorithm SHA256[\s\S]*isn't the file its project published/);
+    assert.doesNotMatch(ps, /Invoke-Expression|\biex\b|-NoProxy \$true|\$a\.NoProxy/);
+    assert.match(ps, /\$env:NODE_EXTRA_CA_CERTS = \$CertFile/);
+    fs.rmSync(world, { recursive: true, force: true });
+  });
 
   await test('windows: behind a company proxy, WSL setup goes through it and trusts the inspecting certificate', async () => {
     const { spawnSync, execFileSync } = require('child_process');
