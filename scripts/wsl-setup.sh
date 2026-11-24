@@ -23,6 +23,11 @@ cd "$DIR"
 find scripts server -type f \( -name '*.sh' -o -name '*.py' \) -exec sed -i 's/\r$//' {} +
 chmod +x scripts/*.sh
 
+# A company proxy (Install.ps1 passes Windows' settings in CPW_PROXY):
+# apt, curl, npm, git and Electron's download go through it from here on
+. scripts/wsl-proxy.sh
+proxy_setup || { echo "The network isn't usable yet: fix what it says above, then run the installer again." >&2; exit 1; }
+
 if [ $QUICK = 0 ]; then
 	say "Ubuntu packages and Node.js (sudo asks for your Linux password)"
 	bash scripts/setup-ubuntu.sh --with-node

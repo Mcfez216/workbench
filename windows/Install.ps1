@@ -10,6 +10,9 @@
 #   -Mode <m>        window (the default: the app in its own window) or
 #                    browser (only if you want it in your web browser instead)
 #   -NoDesktop       no desktop shortcut (the Start menu one is always made)
+#   -Proxy <url>     the company proxy, e.g. http://proxy.example.com:8080
+#                    (normally found by itself, from Windows' own settings)
+#   -NoProxy         don't use a proxy even if Windows has one set
 #   -Uninstall       removes the shortcuts and the launcher (the app and its
 #                    tools stay in WSL; it says how to remove those)
 #
@@ -33,6 +36,8 @@ param(
     [string]$Distro = '',
     [ValidateSet('auto', 'window', 'browser')][string]$Mode = 'window',
     [switch]$NoDesktop,
+    [string]$Proxy = '',
+    [switch]$NoProxy,
     [switch]$Uninstall,
     [switch]$Resumed
 )
@@ -84,6 +89,59 @@ function InLinux([string]$command) {
 
 # A string as a single-quoted bash word
 function BashQuote([string]$s) { return "'" + $s.Replace("'", "'\''") + "'" }
+
+# ------------------------------------------------------------------ the company proxy
+# The proxy Windows uses for the web, the way your browser finds it: the
+# Settings -> Network -> Proxy page (including a setup script / PAC file),
+# then WinHTTP's (netsh winhttp). Linux inside WSL doesn't see these by
+# itself, so they're handed to the setup.
+function FindProxy {
+    if ($NoProxy) { return '' }
+    if ($Proxy) { return $Proxy }
+    foreach ($v in @($env:HTTPS_PROXY, $env:https_proxy, $env:HTTP_PROXY, $env:http_proxy)) { if ($v) { return $v } }
+    try {
+        $target = [Uri]'https://registry.npmjs.org/'
+        $p = [System.Net.WebRequest]::GetSystemWebProxy().GetProxy($target)
+        if ($p -and $p.Host -ne $target.Host) { return "http://$($p.Host):$($p.Port)" }
+    } catch { }
+    try {
+        $w = (& netsh.exe winhttp show proxy 2>$null) -join "`n"
+        if ($w -match 'Proxy Server\(s\)\s*:\s*(\S+)') {
+            $s = $Matches[1]
+            if ($s -match 'https=([^;]+)') { $s = $Matches[1] } elseif ($s -match '=') { $s = (($s -split ';')[0] -replace '^[a-z]+=', '') }
+            return "http://$s"
+        }
+    } catch { }
+    return ''
+}
+# Windows' "don't use the proxy for" list, as Linux writes it (*.corp -> .corp)
+function ProxyBypass {
+    try {
+        $o = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction Stop).ProxyOverride
+        if (-not $o) { return '' }
+        return ((($o -split ';') | Where-Object { $_ -and $_ -ne '<local>' -and $_ -notmatch '[''" ]' } | ForEach-Object { $_ -replace '^\*', '' }) -join ',')
+    } catch { return '' }
+}
+# The certificates Windows trusts, as one PEM file. A proxy that inspects
+# HTTPS re-signs every site with the company's own root certificate, which
+# IT puts in Windows' store; Ubuntu doesn't have it. The setup adds these
+# only if HTTPS fails without them.
+function ExportWindowsCerts([string]$file) {
+    $now = Get-Date
+    $seen = @{}
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($store in @('Cert:\LocalMachine\Root', 'Cert:\CurrentUser\Root')) {
+        foreach ($c in @(Get-ChildItem $store -ErrorAction SilentlyContinue)) {
+            if ($c.NotAfter -lt $now -or $seen.ContainsKey($c.Thumbprint)) { continue }
+            $seen[$c.Thumbprint] = 1
+            [void]$sb.Append("-----BEGIN CERTIFICATE-----`n")
+            [void]$sb.Append([Convert]::ToBase64String($c.RawData, 'InsertLineBreaks').Replace("`r", ''))
+            [void]$sb.Append("`n-----END CERTIFICATE-----`n")
+        }
+    }
+    [IO.File]::WriteAllText($file, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+    return $seen.Count
+}
 
 # ------------------------------------------------------------------ uninstall
 if ($Uninstall) {
@@ -190,7 +248,22 @@ if ((InLinux $fix) -ne 0) { Warn 'Could not check the scripts'' line endings.' }
 # ------------------------------------------------------------------ 4. tools and packages, inside Ubuntu
 Say 'Compilers, tools, Node.js and the app''s packages (inside Ubuntu)'
 Write-Host 'sudo will ask for your Linux password (the one you chose for Ubuntu, not your Windows one).' -ForegroundColor Cyan
-$code = InLinux ('bash ' + (BashQuote "$appDir/scripts/wsl-setup.sh"))
+$netEnv = ''
+$proxyUrl = FindProxy
+if ($proxyUrl) {
+    Write-Host "Company proxy: $($proxyUrl -replace '//[^@/]*@', '//***@') (from Windows' settings; -Proxy <url> to choose another, -NoProxy for none)"
+    $netEnv += 'CPW_PROXY=' + (BashQuote $proxyUrl) + ' '
+    $bypass = ProxyBypass
+    if ($bypass) { $netEnv += 'CPW_NO_PROXY=' + (BashQuote $bypass) + ' ' }
+}
+$certFile = Join-Path $env:TEMP 'cpp-path-workbench-windows-roots.pem'
+try {
+    $n = ExportWindowsCerts $certFile
+    $certLinux = (Wsl -d $Distro -e wslpath -a $certFile) | Select-Object -Last 1
+    if ($n -gt 0 -and $certLinux) { $netEnv += 'CPW_WINDOWS_CERTS=' + (BashQuote $certLinux) + ' ' }
+} catch { Warn "Couldn't read Windows' certificates ($($_.Exception.Message)); carrying on without them." }
+$code = InLinux ($netEnv + 'bash ' + (BashQuote "$appDir/scripts/wsl-setup.sh"))
+Remove-Item -Force -ErrorAction SilentlyContinue $certFile
 if ($code -ne 0) { Fail "Setting up inside Ubuntu failed (exit $code). Fix what it says above, then run this again: it picks up where it left off." }
 
 # ------------------------------------------------------------------ 5. the launcher and shortcuts

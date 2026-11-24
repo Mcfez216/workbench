@@ -720,6 +720,67 @@ async function test(name, fn) {
     });
   }
 
+  await test('windows: behind a company proxy, WSL setup goes through it and trusts the inspecting certificate', async () => {
+    const { spawnSync, execFileSync } = require('child_process');
+    const script = path.join(__dirname, '..', 'scripts', 'wsl-proxy.sh');
+    const world = fs.mkdtempSync(path.join(HOME, 'proxy-'));
+    const bin = path.join(world, 'bin'), root = path.join(world, 'root'), home = path.join(world, 'home');
+    for (const d of [bin, path.join(root, 'etc/apt/apt.conf.d'), home]) fs.mkdirSync(d, { recursive: true });
+    const log = path.join(world, 'calls.log');
+    const tool = (name, body) => fs.writeFileSync(path.join(bin, name), `#!/bin/bash\necho "${name} $*" >> ${JSON.stringify(log)}\n${body}\n`, { mode: 0o755 });
+    // curl: through an inspecting proxy, HTTPS fails until the Windows certificates are in;
+    // CPW_FAKE=auth: the proxy wants a login
+    tool('curl', `if [ "$CPW_FAKE" = auth ]; then echo "curl: (56) CONNECT tunnel failed, response 407" >&2; exit 56; fi
+if [ "$CPW_FAKE" = inspect ] && [ ! -e ${JSON.stringify(path.join(root, 'trusted'))} ]; then echo "curl: (60) SSL certificate problem: self-signed certificate in certificate chain" >&2; exit 60; fi
+printf 200`);
+    tool('update-ca-certificates', `touch ${JSON.stringify(path.join(root, 'trusted'))}`);
+    tool('npm', 'exit 0');
+    tool('git', '[ "$2" = --get ] && exit 1; exit 0');
+    tool('ip', 'echo "default via 172.28.0.1 dev eth0"');
+    tool('wslinfo', 'echo nat');
+    // two real certificates in one PEM file, as Install.ps1 exports them
+    const pem = path.join(world, 'windows-roots.pem');
+    for (const n of [1, 2]) {
+      execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', path.join(world, `k${n}`), '-out', path.join(world, `c${n}.pem`), '-days', '2', '-subj', `/CN=Company Root ${n}`], { stdio: 'ignore' });
+    }
+    fs.writeFileSync(pem, fs.readFileSync(path.join(world, 'c1.pem'), 'utf8') + fs.readFileSync(path.join(world, 'c2.pem'), 'utf8') + '-----BEGIN CERTIFICATE-----\nnot a certificate\n-----END CERTIFICATE-----\n');
+    const run = (env) => {
+      fs.rmSync(log, { force: true });
+      const r = spawnSync('bash', ['-c', `. ${JSON.stringify(script)}; proxy_setup; echo "exit=$?"; echo "https_proxy=$https_proxy"; echo "extra=$NODE_EXTRA_CA_CERTS"`],
+        { env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home, CPW_SUDO: 'env', CPW_ROOT: root, ...env }, encoding: 'utf8' });
+      return { out: r.stdout + r.stderr, calls: fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '' };
+    };
+    // a proxy on Windows' localhost, an inspecting one: reached via the Windows host, certificates trusted
+    const a = run({ CPW_PROXY: 'http://127.0.0.1:3128', CPW_WINDOWS_CERTS: pem, CPW_FAKE: 'inspect' });
+    assert.match(a.out, /from WSL that's http:\/\/172\.28\.0\.1:3128/);
+    assert.match(a.out, /Trusted 2 certificates from Windows/, a.out);
+    assert.match(a.out, /OK: https:\/\/registry\.npmjs\.org\/ answers through the proxy/);
+    assert.match(a.out, /exit=0\nhttps_proxy=http:\/\/172\.28\.0\.1:3128\nextra=\/etc\/ssl\/certs\/ca-certificates\.crt/);
+    assert.strictEqual(fs.readFileSync(path.join(root, 'etc/apt/apt.conf.d/95cpp-path-workbench-proxy'), 'utf8'), 'Acquire::http::Proxy "http://172.28.0.1:3128";\nAcquire::https::Proxy "http://172.28.0.1:3128";\n');
+    assert.deepStrictEqual(fs.readdirSync(path.join(root, 'usr/local/share/ca-certificates/cpp-path-workbench')), ['windows-001.crt', 'windows-002.crt'], 'the broken one is left out');
+    assert.match(a.calls, /npm config set https-proxy http:\/\/172\.28\.0\.1:3128\nnpm config set cafile \/etc\/ssl\/certs\/ca-certificates\.crt/);
+    assert.match(a.calls, /git config --global http\.proxy http:\/\/172\.28\.0\.1:3128/);
+    const envFile = path.join(home, '.config/cpp-path-workbench/proxy.env');
+    const saved = fs.readFileSync(envFile, 'utf8');
+    assert.match(saved, /export https_proxy='http:\/\/172\.28\.0\.1:3128'/);
+    assert.match(saved, /export ELECTRON_GET_USE_PROXY=1/);
+    assert.match(saved, /export NODE_EXTRA_CA_CERTS='\/etc\/ssl\/certs\/ca-certificates\.crt'/);
+    assert.strictEqual((fs.statSync(envFile).mode & 0o777).toString(8), '600', 'it can hold a proxy password');
+    assert.match(spawnSync('bash', ['-c', `. ${JSON.stringify(envFile)}; echo $GLOBAL_AGENT_HTTPS_PROXY`], { encoding: 'utf8' }).stdout, /^http:\/\/172\.28\.0\.1:3128$/m);
+    run({ CPW_PROXY: 'http://proxy.corp:8080' });
+    assert.strictEqual(fs.readFileSync(path.join(home, '.profile'), 'utf8').split('proxy.env').length - 1, 2, '~/.profile reads it, added once');
+    // mirrored networking: localhost stays localhost
+    assert.match(run({ CPW_PROXY: 'http://localhost:3128', CPW_MIRRORED: '1' }).out, /https_proxy=http:\/\/localhost:3128/);
+    // a proxy that wants a login: says how, and stops
+    const c = run({ CPW_PROXY: 'http://proxy.corp:8080', CPW_FAKE: 'auth' });
+    assert.match(c.out, /wants a login \(HTTP 407\)[\s\S]*px[\s\S]*exit=1/);
+    // no proxy and nothing from Windows: does nothing at all
+    const d = run({});
+    assert.strictEqual(d.calls, '');
+    assert.match(d.out, /^exit=0\nhttps_proxy=\n/);
+    fs.rmSync(world, { recursive: true, force: true });
+  });
+
   await test('windows: the WSL launcher picks the window or the browser, and says what is missing', async () => {
     const { execFileSync, spawnSync } = require('child_process');
     const script = path.join(__dirname, '..', 'scripts', 'wsl-launch.sh');
