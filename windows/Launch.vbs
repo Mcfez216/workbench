@@ -3,9 +3,8 @@
 ' launcher.ini, next to it, says which WSL distro and where the app is;
 ' Install.ps1 writes it.
 '
-'   wscript Launch.vbs            the window (or the browser, without WSLg)
-'   wscript Launch.vbs browser    always in your Windows browser
-'   wscript Launch.vbs window     always the window
+'   wscript Launch.vbs            the app in its own window (the default)
+'   wscript Launch.vbs browser    in your Windows browser instead (only if you want that)
 Option Explicit
 Dim sh, fso, here, distro, appDir, mode, f, line, parts, cmd
 Set sh = CreateObject("WScript.Shell")

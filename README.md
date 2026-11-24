@@ -97,10 +97,12 @@ command. It asks before each big step:
    Ubuntu (`scripts/wsl-setup.sh`; sudo asks for your Linux password);
 5. puts **C++ Path Workbench** in the Start menu and on the desktop.
 
-The shortcut starts it with no console window: in its own window through
-WSLg (Windows 11, or 10 with the current WSL), or in your Windows browser
-when there's no WSLg. Start menu → *C++ Path Workbench (in your browser)*
-always uses the browser. To update, download the new version and run the
+The shortcut starts it in its own window, with no console window, through
+WSLg (Windows 11, or Windows 10 22H2 with the current WSL from the Microsoft
+Store). It never opens your browser by surprise: if the window can't open, a
+message says why (WSLg not running, Electron missing a library...) and what to
+run to fix it. If you'd rather have it in your browser, install with
+`-Mode browser`. To update, download the new version and run the
 installer again (your settings, code and vaults are untouched). *Uninstall
 C++ Path Workbench shortcuts* removes what it put on Windows. If it won't
 start, the reason pops up, and the details are in

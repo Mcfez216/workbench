@@ -632,9 +632,11 @@ async function test(name, fn) {
     delete env.DISPLAY; delete env.WAYLAND_DISPLAY;
     const check = (...a) => execFileSync('bash', [script, ...a, '--check'], { env, encoding: 'utf8' }).trim();
     const electron = fs.existsSync(path.join(__dirname, '..', 'node_modules', 'electron', 'dist', 'electron'));
-    if (!fs.existsSync('/mnt/wslg')) assert.strictEqual(check(), 'browser', 'no WSLg: the browser');
-    assert.strictEqual(execFileSync('bash', [script, '--check'], { env: { ...env, WAYLAND_DISPLAY: 'wayland-0' }, encoding: 'utf8' }).trim(), electron ? 'window' : 'browser');
-    assert.strictEqual(check('window'), 'window');
+    // always the window; the browser only when asked for. What blocks the window is said, with the fix
+    const r0 = spawnSync('bash', [script, '--check'], { env, encoding: 'utf8' });
+    assert.strictEqual(r0.stdout.split('\n')[0], 'window', 'never the browser by surprise');
+    if (!fs.existsSync('/mnt/wslg')) { assert.strictEqual(r0.status, 1); assert.match(r0.stdout, /WSLg isn't running[\s\S]*wsl --update/); }
+    if (!electron) assert.match(r0.stdout, /Electron .* isn't installed[\s\S]*npm install/);
     assert.strictEqual(check('browser'), 'browser');
     // a copy without its packages says to run the installer again
     const app = fs.mkdtempSync(path.join(HOME, 'app-'));

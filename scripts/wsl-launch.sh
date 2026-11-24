@@ -2,11 +2,11 @@
 # Starts the app from Windows: the Start menu / desktop shortcut that
 # windows\Install.ps1 makes runs this inside WSL (hidden, no console).
 #
-#   window   the Electron window, drawn by WSLg (Windows 11, or 10 with the
-#            Store version of WSL)
-#   browser  the same app in your Windows browser (when there is no WSLg,
-#            or you'd rather): the backend runs here, the page there
-#   auto     window when WSLg is there, browser otherwise (the default)
+#   window   the app in its own window, drawn by WSLg (Windows 11, or 10
+#            with the Store version of WSL). The default ("auto" means this
+#            too). If it can't open, a message says why and how to fix it.
+#   browser  the same app in your Windows browser, only if you ask for it:
+#            the backend runs here, the page there
 #
 #   bash scripts/wsl-launch.sh [auto|window|browser] [--check]
 # --check only says what it would do. Problems show up in a Windows message
@@ -54,31 +54,78 @@ if [ ! -d "$DIR/node_modules" ]; then
 fi
 
 has_wslg() { [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] || [ -e /mnt/wslg/.X11-unix/X0 ]; }
-if [ "$MODE" = auto ]; then
-	if has_wslg && [ -x "$DIR/node_modules/electron/dist/electron" ]; then MODE=window; else MODE=browser; fi
-fi
+ELECTRON="$DIR/node_modules/electron/dist/electron"
+# The app is a desktop program: it opens in its own window. The browser is
+# only used when you ask for it (the "browser" mode), never as a surprise.
+[ "$MODE" = auto ] && MODE=window
+
+# What stops the window from opening, in plain words, with the fix
+window_problems() {
+	if ! has_wslg; then
+		echo "WSLg isn't running: it's the part of WSL that shows Linux windows on your Windows desktop.
+Fix: in PowerShell run   wsl --update   then   wsl --shutdown   and start the app again.
+WSLg needs Windows 11, or Windows 10 22H2 (build 19045 or later) with the current WSL from the Microsoft Store."
+	fi
+	if [ ! -x "$ELECTRON" ]; then
+		echo "Electron (the program that draws the app's window) isn't installed: its download probably failed during setup.
+Fix: run 'Install on Windows' again, or in Ubuntu:   cd $DIR && npm install"
+	elif command -v ldd >/dev/null 2>&1; then
+		local missing
+		missing="$(ldd "$ELECTRON" 2>/dev/null | awk '/not found/ {print $1}' | tr '\n' ' ')"
+		[ -n "$missing" ] && echo "Electron is missing some Linux libraries: $missing
+Fix: in Ubuntu run   bash $DIR/scripts/setup-ubuntu.sh   (or run 'Install on Windows' again)."
+	fi
+}
+
 # WSLg's sockets are there even when this process wasn't told about them
 if [ "$MODE" = window ] && [ -z "${DISPLAY:-}" ] && [ -e /mnt/wslg/.X11-unix/X0 ]; then export DISPLAY=:0; fi
 if [ "$MODE" = window ] && [ -z "${WAYLAND_DISPLAY:-}" ] && [ -e /mnt/wslg/runtime-dir/wayland-0 ]; then
 	export WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/mnt/wslg/runtime-dir}"
 fi
-echo "-> $MODE" >>"$LOG"
-if [ $CHECK = 1 ]; then echo "$MODE"; exit 0; fi
+problems=""
+[ "$MODE" = window ] && problems="$(window_problems)"
+echo "-> $MODE${problems:+ (blocked: see below)}" >>"$LOG"
+if [ $CHECK = 1 ]; then
+	echo "$MODE"
+	[ -n "$problems" ] && printf '%s\n' "$problems"
+	[ -n "$problems" ] && exit 1
+	exit 0
+fi
+if [ -n "$problems" ]; then
+	tell "C++ Path Workbench can't open its window yet.
+
+$problems
+
+Details: $LOG (in Ubuntu)"
+	exit 1
+fi
 
 cd "$DIR" || exit 1
 if [ "$MODE" = window ]; then
 	started=$(date +%s)
+	mark=$(wc -l <"$LOG")
 	npm start >>"$LOG" 2>&1
 	code=$?
-	# a window that closed within seconds never really opened
-	if [ $code -ne 0 ] && [ $(( $(date +%s) - started )) -lt 20 ]; then
-		tell "The window couldn't open (exit $code). Starting it in your browser instead.
+	# a window that closed within seconds never really opened: say why, don't hide it
+	if [ $code -ne 0 ] && [ $(( $(date +%s) - started )) -lt 30 ]; then
+		said="$(tail -n +"$((mark + 1))" "$LOG" | grep -vE '^\s*$|^>|^npm (ERR|error|notice)|^\s+at |^\s+web/dist/|Done in [0-9]' | tail -n 12)"
+		hint=""
+		case "$said" in
+			*"SUID sandbox"*|*"sandbox"*"namespace"*) hint="Electron's sandbox can't start here. Fix: in Ubuntu run   bash $DIR/scripts/setup-ubuntu.sh" ;;
+			*"Missing X server"*|*"cannot open display"*|*"Failed to connect to Wayland"*) hint="WSLg isn't answering. Fix: in PowerShell run   wsl --shutdown   and start the app again (or wsl --update first)." ;;
+			*"error while loading shared libraries"*) hint="A Linux library is missing. Fix: in Ubuntu run   bash $DIR/scripts/setup-ubuntu.sh" ;;
+			*"too old"*|*"Node.js"*) hint="Node.js is too old. Fix: run 'Install on Windows' again." ;;
+		esac
+		tell "The window closed straight away (exit $code).
+${hint:+
+$hint
+}
+What it said:
+$said
 
-If this keeps happening: in PowerShell run 'wsl --update', then 'wsl --shutdown'. Details: $LOG"
-		MODE=browser
-	else
-		exit $code
+All of it: $LOG (in Ubuntu)"
 	fi
+	exit $code
 fi
 
 # Browser mode: the backend here, the page in your Windows browser (WSL
