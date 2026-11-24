@@ -107,16 +107,14 @@ function startServer({ port = 0, host = '127.0.0.1' } = {}) {
     const cookies = parseCookies(req.headers.cookie);
 
     // First visit from the app window: trade the URL token for a cookie.
+    // The page comes back straight away with the cookie (no redirect: some
+    // security software on Windows cuts off a redirected local page), and
+    // the page then takes the token out of its address.
+    let setCookie = false;
     if (url.searchParams.has('t')) {
       if (!safeEqual(url.searchParams.get('t'), token)) { res.writeHead(403); return res.end('Forbidden'); }
-      res.writeHead(302, {
-        'Set-Cookie': `cpw=${token}; HttpOnly; SameSite=Strict; Path=/`,
-        'Location': url.pathname || '/',
-        'Cache-Control': 'no-store',
-      });
-      return res.end();
-    }
-    if (!safeEqual(cookies.cpw, token)) { res.writeHead(403); return res.end('Forbidden'); }
+      setCookie = true;
+    } else if (!safeEqual(cookies.cpw, token)) { res.writeHead(403); return res.end('Forbidden'); }
 
     let rel = decodeURIComponent(url.pathname);
     if (rel === '/') rel = '/index.html';
@@ -129,6 +127,7 @@ function startServer({ port = 0, host = '127.0.0.1' } = {}) {
         'Cache-Control': 'no-store',
         'X-Content-Type-Options': 'nosniff',
       };
+      if (setCookie) headers['Set-Cookie'] = `cpw=${token}; HttpOnly; SameSite=Strict; Path=/`;
       if (file.endsWith('.html')) {
         headers['Content-Security-Policy'] = [
           "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'",

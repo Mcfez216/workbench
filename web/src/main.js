@@ -32,6 +32,9 @@ import { initIrc } from './irc.js';
 import { initMail } from './mail.js';
 import { initMusic, setMusicUrl, setMusicWhere } from './music.js';
 import { initSettings, onSettingsSaved } from './settings.js';
+
+// The window opened with ?t=<token> (traded for a cookie): keep it out of the address
+if (/[?&]t=/.test(location.search)) history.replaceState(null, '', location.pathname);
 import { initWelcome } from './welcome.js';
 
 let cfg;

@@ -103,7 +103,52 @@ async function createWindow() {
   });
 
   win.on('closed', () => { win = null; });
-  await win.loadURL(srv.url);
+  // The window only ever loads the app's own page on 127.0.0.1, so it never
+  // goes through a proxy: a company proxy (or its PAC script) can otherwise
+  // swallow the local request. Music has its own session and keeps Windows'
+  // proxy settings.
+  await session.defaultSession.setProxy({ mode: 'direct' });
+  // A slow virus scanner or a security product can drop the first request:
+  // try a few times, then say exactly what failed.
+  let last = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try { await win.loadURL(srv.url); return; } catch (err) {
+      last = err;
+      logStart(`load attempt ${attempt} failed: ${err && err.code} ${err && err.errno} ${err && err.message}`);
+      if (!win) return;
+      await new Promise((r) => setTimeout(r, 800 * attempt));
+    }
+  }
+  const probe = await probeServer();
+  logStart(`server probe: ${probe}`);
+  throw Object.assign(new Error(loadFailureText(last, probe)), { shown: true });
+}
+// Ask the server directly, without the window's network stack
+function probeServer() {
+  return new Promise((resolve) => {
+    const req = require('http').get(srv.url, { timeout: 5000 }, (res) => { res.resume(); resolve(`answered ${res.statusCode}`); });
+    req.on('timeout', () => { req.destroy(); resolve('no answer in 5 s'); });
+    req.on('error', (e) => resolve(`error ${e.code || e.message}`));
+  });
+}
+
+// What went wrong when the window couldn't load its page, in words, with a
+// check that the app's own server answers at all.
+function startLog() { return path.join(require('./server/config').DATA_DIR, 'start.log'); }
+function logStart(line) {
+  try {
+    require('fs').mkdirSync(path.dirname(startLog()), { recursive: true });
+    require('fs').appendFileSync(startLog(), `${new Date().toISOString()} ${line}\n`);
+  } catch (e) { /* no log, then */ }
+}
+function loadFailureText(err, probe) {
+  const code = (err && err.code) || String(err && err.message || err);
+  return `The window couldn't load the app's page from its own local server (${srv ? srv.origin : 'not started'}): ${code}.\n`
+    + `Asked directly, the server ${probe}${/^answered 200/.test(probe) ? ': the server is fine, something is stopping the window reaching it' : ''}.\n\n`
+    + 'On a work computer this is usually security software (antivirus "web protection", or a network security client) '
+    + 'blocking connections to 127.0.0.1. Ask IT to allow this program to talk to 127.0.0.1:\n'
+    + `  ${process.execPath}\n\n`
+    + `Details: ${startLog()}`;
 }
 
 // The music view: links that leave YouTube go to your browser.
@@ -119,7 +164,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
   Menu.setApplicationMenu(null);           // the app draws its own menu bar; F10 and Alt+letter reach it
   app.whenReady().then(createWindow).catch((err) => {
-    dialog.showErrorBox('C++ Path Workbench could not start', String(err && err.stack || err));
+    logStart(`could not start: ${err && err.stack || err}`);
+    dialog.showErrorBox('C++ Path Workbench could not start', err && err.shown ? err.message : String(err && err.stack || err));
     app.quit();
   });
   app.on('window-all-closed', () => app.quit());
