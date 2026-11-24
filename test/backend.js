@@ -17,7 +17,7 @@ const until = async (fn, ms = 10000) => { for (let i = 0; i < ms / 100 && !fn();
 const results = [];
 async function test(name, fn) {
   try { await fn(); results.push([true, name]); console.log(`  ok    ${name}`); }
-  catch (e) { results.push([false, name]); console.log(`  FAIL  ${name}\n        ${e.stack.split('\n').slice(0, 3).join('\n        ')}`); }
+  catch (e) { results.push([false, name]); console.log(`  FAIL  ${name}\n        ${e.stack.split("\n").slice(0, process.env.CPW_LONG ? 30 : 3).join("\n        ")}`); }
 }
 
 (async () => {
@@ -523,6 +523,101 @@ async function test(name, fn) {
     await assert.rejects(call('guides.read', { file: path.join(PROJ, 'CMakeLists.txt') }), /outside your vaults/);
   });
 
+  await test('notes: backlinks, the graph, tags, new and daily notes, ticking tasks', async () => {
+    const l = await call('guides.list');
+    const cv = l.vaults.find((v) => v.name === 'C-Path'), mv = l.vaults.find((v) => v.name === 'Scratch Notes');
+    const made = [];
+    try {
+      // a link to Pointers from each vault's start note lands in its own vault's Pointers
+      const myPtr = path.join(mv.path, 'Pointers.md'), cPtr = path.join(cv.path, 'Phase 1', 'Pointers.md');
+      const b1 = await call('guides.backlinks', { file: myPtr });
+      assert.deepStrictEqual(b1.from.map((x) => x.name), ['Start Here']);
+      assert.match(b1.from[0].line, /My own take/);
+      const b2 = await call('guides.backlinks', { file: cPtr });
+      assert.deepStrictEqual(b2.from.map((x) => x.name), ['C Start Here']);
+      const g = await call('guides.graph', { vault: mv.path });
+      assert.deepStrictEqual([g.nodes.length, g.edges.length], [2, 1]);
+      // a new note: its links (not the ones in code) and tags; never overwritten; no escaping the vault
+      const n = await call('guides.create', { vault: mv.path, name: 'Smart Pointers', text: '---\ntags: [cpp, memory]\n---\n# Smart Pointers\n\nSee [[Pointers]] and [[Nowhere Yet]]. #todo\n\n```cpp\n[[nodiscard]] int f(); // #not-a-tag\n```\n\n- [ ] read about unique_ptr\n- [x] read about raw pointers\n\n> [!tip]\n> - [ ] a task in a callout\n' });
+      made.push(n.path);
+      assert.strictEqual(n.existed, false);
+      assert.strictEqual((await call('guides.create', { vault: mv.path, name: 'Smart Pointers', text: 'X' })).existed, true);
+      assert.match(fs.readFileSync(n.path, 'utf8'), /Nowhere Yet/, 'not overwritten');
+      const b3 = await call('guides.backlinks', { file: n.path });
+      assert.deepStrictEqual(b3.missing, ['Nowhere Yet']);
+      assert.deepStrictEqual(b3.tags.sort(), ['cpp', 'memory', 'todo']);
+      assert.strictEqual(b3.out, 1);
+      assert.deepStrictEqual((await call('guides.backlinks', { file: myPtr })).from.map((x) => x.name).sort(), ['Smart Pointers', 'Start Here']);
+      const tags = await call('guides.tags', { vault: mv.path });
+      assert.deepStrictEqual(tags.find((x) => x.tag === 'todo').notes.map((x) => x.name), ['Smart Pointers']);
+      assert.ok(!tags.some((x) => x.tag === 'not-a-tag'), 'tags inside code don\'t count');
+      for (const bad of ['../escape', 'a/../../b', '.hidden', '']) await assert.rejects(call('guides.create', { vault: mv.path, name: bad }), /can't be a note name/);
+      // tasks: the nth box on the page is the nth in the file, callouts included
+      await call('guides.toggleTask', { file: n.path, index: 0, done: true, expectText: 'read about unique_ptr' });
+      await call('guides.toggleTask', { file: n.path, index: 1, done: false });
+      await call('guides.toggleTask', { file: n.path, index: 2, done: true });
+      const t = fs.readFileSync(n.path, 'utf8');
+      assert.match(t, /- \[x\] read about unique_ptr\n- \[ \] read about raw pointers/);
+      assert.match(t, /> - \[x\] a task in a callout/);
+      await assert.rejects(call('guides.toggleTask', { file: n.path, index: 9, done: true }), /no longer in the note/);
+      await assert.rejects(call('guides.toggleTask', { file: path.join(PROJ, 'CMakeLists.txt'), index: 0, done: true }), /outside your vaults/);
+      // a note from the vault's template; today's note in Daily/
+      fs.mkdirSync(path.join(mv.path, 'Templates'));
+      fs.writeFileSync(path.join(mv.path, 'Templates', 'Note Template.md'), '---\ntags: [draft]\n---\n# {{title}}\n\nStarted {{date}}.\n');
+      made.push(path.join(mv.path, 'Templates'));
+      const fromTpl = await call('guides.create', { vault: mv.path, name: 'Lambdas', folder: 'Phase 2' });
+      made.push(path.dirname(fromTpl.path));
+      assert.match(fs.readFileSync(fromTpl.path, 'utf8'), /^---\ntags: \[draft\]\n---\n# Lambdas\n\nStarted \d{4}-\d\d-\d\d\.\n$/);
+      const d = await call('guides.daily', { vault: mv.path });
+      made.push(path.dirname(d.path));
+      assert.match(path.relative(mv.path, d.path), /^Daily\/\d{4}-\d\d-\d\d\.md$/);
+      assert.match(fs.readFileSync(d.path, 'utf8'), /- \[ \] Read one note/);
+      assert.strictEqual((await call('guides.daily', { vault: mv.path })).existed, true);
+    } finally {
+      for (const p of made) fs.rmSync(p, { recursive: true, force: true });
+    }
+  });
+
+  await test('openbsd: clang, egdb, UBSan in trap mode with the strict malloc, doas pkg_add hints', async () => {
+    const platform = require('../server/platform');
+    const asan = ['-Wall', '-g', '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer'];
+    assert.deepStrictEqual(platform.sanitizerFlags(asan, { platform: 'linux' }), asan, 'Linux: unchanged');
+    assert.deepStrictEqual(platform.sanitizerFlags(asan, { platform: 'openbsd' }), ['-Wall', '-g', '-fno-omit-frame-pointer', '-fsanitize=undefined', '-fsanitize-trap=undefined']);
+    assert.deepStrictEqual(platform.sanitizerFlags(['-O2'], { platform: 'openbsd' }), ['-O2']);
+    assert.throws(() => platform.sanitizerFlags(['-fsanitize=fuzzer,address'], { platform: 'openbsd' }), /libFuzzer isn't available on OpenBSD/);
+    assert.deepStrictEqual(platform.runEnv(asan, { platform: 'openbsd' }), { MALLOC_OPTIONS: 'S' });
+    assert.deepStrictEqual(platform.runEnv(['-O2'], { platform: 'openbsd' }), {});
+    assert.deepStrictEqual(platform.runEnv(asan, { platform: 'linux' }), {});
+    // the whole backend, as if on OpenBSD: compilers, hints, the CMake template
+    const { execFileSync } = require('child_process');
+    const out = JSON.parse(execFileSync(process.execPath, ['-e', `
+      const d = require('./server/distro'), p = require('./server/platform');
+      console.log(JSON.stringify({ cc: p.defaultCompilers(), fam: d.info().family, gdb: d.installHint('gdb'), clangd: d.installHint('clangd'), gpp: d.installHint('g++'), clang: d.installHint('clang') }));
+    `], { cwd: path.join(__dirname, '..'), env: { ...process.env, WORKBENCH_PLATFORM: 'openbsd' }, encoding: 'utf8' }));
+    assert.deepStrictEqual(out.cc, { compiler: 'clang++', cCompiler: 'clang' });
+    assert.strictEqual(out.fam, 'openbsd');
+    assert.match(out.gdb, /doas pkg_add gdb.*egdb/);
+    assert.strictEqual(out.clangd, 'doas pkg_add clang-tools-extra');
+    assert.match(out.gpp, /clang\+\+ \/ clang in Settings/);
+    assert.strictEqual(out.clang, 'part of OpenBSD itself');
+    const cm = fs.readFileSync(path.join(__dirname, '..', 'server', 'project.js'), 'utf8');
+    assert.match(cm, /CMAKE_SYSTEM_NAME STREQUAL "OpenBSD" OR \(MINGW AND [^\n]*"GNU"\)\)\n(\s+# [^\n]*\n)+\s+add_compile_options\(-fsanitize=undefined -fsanitize-trap=undefined/);
+    // the window: Chromium in app mode with its own profile (inside ~/.config/chromium: unveil)
+    const bin = path.join(HOME, 'fake-browsers');
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(path.join(bin, 'chrome'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const aw = path.join(__dirname, '..', 'scripts', 'app-window.js');
+    const chk = execFileSync(process.execPath, [aw, '--check'], { env: { ...process.env, PATH: `${bin}:/usr/bin:/bin`, CPW_BROWSER: path.join(bin, 'chrome') }, encoding: 'utf8' });
+    assert.match(chk, /^chromium: .*\/chrome\nchrome --app=URL --user-data-dir=\S+ --class=cpp-path-workbench/);
+    const none = require('child_process').spawnSync(process.execPath, [aw, '--check'], { env: { ...process.env, PATH: bin, CPW_BROWSER: '/nowhere/browser' }, encoding: 'utf8' });
+    assert.strictEqual(none.status, 1);
+    assert.match(none.stdout, /no window: CPW_BROWSER is \/nowhere\/browser/);
+    const setup = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'setup-openbsd.sh'), 'utf8');
+    assert.match(setup, /^#!\/bin\/sh\n/, 'plain sh: OpenBSD has no bash out of the box');
+    assert.doesNotMatch(setup, /\[\[|\bfunction\b|\$\{[^}]*\/\/|local /, 'no bashisms');
+    assert.strictEqual(require('child_process').spawnSync('sh', ['-n', path.join(__dirname, '..', 'scripts', 'setup-openbsd.sh')]).status, 0);
+  });
+
   await test('sandbox: C with gcc, its own scratch.c, a runtime problem, Valgrind, and the assembly', async () => {
     const src = '#include <stdio.h>\n#include <stdlib.h>\n\nint main(void) {\n    int *p = malloc(sizeof *p);\n    free(p);\n    printf("%d\\n", *p);\n    return 0;\n}\n';
     const got = waitFor('build.runtime', (d) => d.problems.some((x) => /use-after-free/.test(x.message)), 30000);
@@ -624,6 +719,142 @@ async function test(name, fn) {
       assert.strictEqual(r.text, 'int main() {\n    return 0;\n}\n');
     });
   }
+
+  await test('windows without WSL: clang.exe through PATHEXT, the toolchain on PATH, sanitizers, C:/ paths, DPAPI, a real terminal', async () => {
+    const platform = require('../server/platform');
+    const { execFileSync } = require('child_process');
+    const world = fs.mkdtempSync(path.join(HOME, 'win-'));
+    const bin = path.join(world, 'bin');
+    fs.mkdirSync(bin);
+    for (const f of ['clang++.EXE', 'sh.exe', 'notes.txt']) fs.writeFileSync(path.join(bin, f), '');
+    const env = { PATH: `${path.join(world, 'nowhere')};${bin}`, PATHEXT: '.COM;.EXE;.BAT;.CMD' };
+    assert.strictEqual(platform.which('clang++', [], { platform: 'win32', env }), path.join(bin, 'clang++.EXE'));
+    assert.strictEqual(platform.which('sh', [], { platform: 'win32', env }), path.join(bin, 'sh.exe'));
+    assert.strictEqual(platform.which('notes', [], { platform: 'win32', env }), null, 'only programs');
+    assert.strictEqual(platform.which('clang++', [], { platform: 'linux', env }), null, 'Linux splits PATH on : and wants the exact name');
+    assert.deepStrictEqual([platform.exe('a/scratch', { platform: 'win32' }), platform.exe('x.exe', { platform: 'win32' }), platform.exe('a/scratch', { platform: 'linux' })], ['a/scratch.exe', 'x.exe', 'a/scratch']);
+    // clang: ASan and UBSan, no leak checker; gcc: UBSan trap mode only
+    const flags = ['-g', '-fsanitize=address,undefined', '-fno-sanitize-recover=all'];
+    assert.deepStrictEqual(platform.sanitizerFlags(flags, { platform: 'win32', cc: 'clang++' }), flags);
+    assert.deepStrictEqual(platform.sanitizerFlags(['-fsanitize=address,leak'], { platform: 'win32', cc: 'clang' }), ['-fsanitize=address']);
+    assert.deepStrictEqual(platform.sanitizerFlags(flags, { platform: 'win32', cc: 'g++' }), ['-g', '-fsanitize=undefined', '-fsanitize-trap=undefined']);
+    assert.deepStrictEqual(platform.runEnv(flags, { platform: 'win32' }), { ASAN_OPTIONS: 'detect_leaks=0:abort_on_error=0' });
+    // paths reach the window as C:/...; file contents and messages don't change
+    assert.deepStrictEqual(platform.slashes({ file: 'C:\\Users\\jo\\cpp-path\\main.cpp', list: [{ path: 'D:\\Notes\\C-Path' }], text: '#include <x>\nC:\\not\\a\\path', msg: 'error in C:\\x.cpp: oops', n: 3 }),
+      { file: 'C:/Users/jo/cpp-path/main.cpp', list: [{ path: 'D:/Notes/C-Path' }], text: '#include <x>\nC:\\not\\a\\path', msg: 'error in C:\\x.cpp: oops', n: 3 });
+    // the backend as if on Windows: the toolchain first on PATH, clang by default, hints
+    const tools = path.join(world, 'tools');
+    for (const d of ['llvm-mingw/bin', 'llvm-mingw/x86_64-w64-mingw32/bin', 'w64devkit/bin', 'node']) fs.mkdirSync(path.join(tools, d), { recursive: true });
+    const out = JSON.parse(execFileSync(process.execPath, ['-e', `
+      const p = require('./server/platform'), d = require('./server/distro');
+      const have = p.setupPath();
+      console.log(JSON.stringify({ have, path: process.env.PATH, cc: p.defaultCompilers(), fam: d.info().family, vg: d.installHint('valgrind'), gdb: d.installHint('gdb'),
+        secret: require('./server/secrets').dpapiFile('neomutt', 'jo@example.org') }));
+    `], { cwd: path.join(__dirname, '..'), env: { ...process.env, WORKBENCH_PLATFORM: 'win32', CPW_TOOLS: tools, PATH: 'C:\\Windows\\System32' }, encoding: 'utf8' }));
+    assert.deepStrictEqual(out.have.map((d) => path.relative(tools, d)), ['llvm-mingw/bin', 'llvm-mingw/x86_64-w64-mingw32/bin', 'w64devkit/bin', 'node'], 'only the folders that are there, llvm-mingw first');
+    assert.strictEqual(out.path, [...out.have, 'C:\\Windows\\System32'].join(';'));
+    assert.deepStrictEqual(out.cc, { compiler: 'clang++', cCompiler: 'clang' });
+    assert.strictEqual(out.fam, 'windows');
+    assert.match(out.vg, /doesn't exist for Windows: the sanitizers/);
+    assert.match(out.gdb, /Install on Windows \(no WSL\)\.cmd" again/);
+    assert.match(out.secret, /secrets[\\/][0-9a-f]{32}\.dpapi$/, 'a hashed name: the address isn\'t in the file name');
+    // passwords go to PowerShell on stdin, never on its command line
+    const sec = fs.readFileSync(path.join(__dirname, '..', 'server', 'secrets.js'), 'utf8');
+    assert.match(sec, /\[Console\]::In\.ReadToEnd\(\)/);
+    assert.match(sec, /p\.stdin\.end\(input === undefined \? '' : input\)/);
+    assert.match(sec, /spawn\('powershell\.exe', \['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script\]/, 'only the fixed script on the command line');
+    assert.match(sec, /await powershell\(PS_STORE, f, secret\)/);
+    // a real terminal through node-pty (what Windows uses, as ConPTY), here on Linux
+    const term = execFileSync(process.execPath, ['-e', `
+      const pty = require('./server/pty'); let out = '';
+      pty.init({ register() {}, onExit: [], broadcast(k, d) { if (k === 'pty.data') out += d.data; if (k === 'pty.exit') { console.log(JSON.stringify({ out, code: d.code, b: pty.backend() })); process.exit(0); } } });
+      const t = pty.open({ cwd: ${JSON.stringify(world)}, cols: 77, argv: ['bash', '-c', 'read -r x; echo "got $x"; tput cols; exit 3'] });
+      setTimeout(() => pty.write({ id: t.id, data: 'hello\\r' }), 200);
+      setTimeout(() => { console.log(JSON.stringify({ out, timeout: true })); process.exit(1); }, 8000);
+    `], { cwd: path.join(__dirname, '..'), env: { ...process.env, CPW_PTY: 'node-pty' }, encoding: 'utf8' });
+    const t = JSON.parse(term);
+    assert.strictEqual(t.b, 'node-pty');
+    assert.match(t.out, /got hello\r\n77\r\n/);
+    assert.strictEqual(t.code, 3);
+    // the installer: plain ASCII with Windows line endings, pinned https downloads, every one checked
+    const ps = fs.readFileSync(path.join(__dirname, '..', 'windows', 'Install-Native.ps1'), 'utf8');
+    for (const f of ['windows/Install-Native.ps1', 'windows/Launch-Native.vbs', 'Install on Windows (no WSL).cmd']) {
+      const txt = fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+      assert.ok(/^[\x00-\x7f]*$/.test(txt), `${f}: ASCII only (Windows PowerShell 5.1 reads files without a BOM as ANSI)`);
+      assert.ok(!/[^\r]\n/.test(txt), `${f}: CRLF line endings`);
+    }
+    const urls = [...ps.matchAll(/Url = '([^']+)'/g)].map((m) => m[1]);
+    assert.strictEqual(urls.length, 6);
+    for (const u of urls) assert.match(u, /^https:\/\/(nodejs\.org\/dist|github\.com\/[\w-]+\/[\w-]+\/releases\/download)\//);
+    for (const m of ps.matchAll(/Url = 'https:\/\/github\.com\/([\w-]+\/[\w-]+)\/releases\/download\/([^/]+)\/([^']+)'; Repo = '([^']+)'; Tag = '([^']+)'/g)) {
+      assert.deepStrictEqual([m[4], m[5]], [m[1], m[2]], 'the checksum is looked up for the same release that is downloaded');
+    }
+    assert.match(ps, /Get-FileHash -Algorithm SHA256[\s\S]*isn't the file its project published/);
+    assert.doesNotMatch(ps, /Invoke-Expression|\biex\b|-NoProxy \$true|\$a\.NoProxy/);
+    assert.match(ps, /\$env:NODE_EXTRA_CA_CERTS = \$CertFile/);
+    fs.rmSync(world, { recursive: true, force: true });
+  });
+
+  await test('windows: behind a company proxy, WSL setup goes through it and trusts the inspecting certificate', async () => {
+    const { spawnSync, execFileSync } = require('child_process');
+    const script = path.join(__dirname, '..', 'scripts', 'wsl-proxy.sh');
+    const world = fs.mkdtempSync(path.join(HOME, 'proxy-'));
+    const bin = path.join(world, 'bin'), root = path.join(world, 'root'), home = path.join(world, 'home');
+    for (const d of [bin, path.join(root, 'etc/apt/apt.conf.d'), home]) fs.mkdirSync(d, { recursive: true });
+    const log = path.join(world, 'calls.log');
+    const tool = (name, body) => fs.writeFileSync(path.join(bin, name), `#!/bin/bash\necho "${name} $*" >> ${JSON.stringify(log)}\n${body}\n`, { mode: 0o755 });
+    // curl: through an inspecting proxy, HTTPS fails until the Windows certificates are in;
+    // CPW_FAKE=auth: the proxy wants a login
+    tool('curl', `if [ "$CPW_FAKE" = auth ]; then echo "curl: (56) CONNECT tunnel failed, response 407" >&2; exit 56; fi
+if [ "$CPW_FAKE" = inspect ] && [ ! -e ${JSON.stringify(path.join(root, 'trusted'))} ]; then echo "curl: (60) SSL certificate problem: self-signed certificate in certificate chain" >&2; exit 60; fi
+printf 200`);
+    tool('update-ca-certificates', `touch ${JSON.stringify(path.join(root, 'trusted'))}`);
+    tool('npm', 'exit 0');
+    tool('git', '[ "$2" = --get ] && exit 1; exit 0');
+    tool('ip', 'echo "default via 172.28.0.1 dev eth0"');
+    tool('wslinfo', 'echo nat');
+    // two real certificates in one PEM file, as Install.ps1 exports them
+    const pem = path.join(world, 'windows-roots.pem');
+    for (const n of [1, 2]) {
+      execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', path.join(world, `k${n}`), '-out', path.join(world, `c${n}.pem`), '-days', '2', '-subj', `/CN=Company Root ${n}`], { stdio: 'ignore' });
+    }
+    fs.writeFileSync(pem, fs.readFileSync(path.join(world, 'c1.pem'), 'utf8') + fs.readFileSync(path.join(world, 'c2.pem'), 'utf8') + '-----BEGIN CERTIFICATE-----\nnot a certificate\n-----END CERTIFICATE-----\n');
+    const run = (env) => {
+      fs.rmSync(log, { force: true });
+      const r = spawnSync('bash', ['-c', `. ${JSON.stringify(script)}; proxy_setup; echo "exit=$?"; echo "https_proxy=$https_proxy"; echo "extra=$NODE_EXTRA_CA_CERTS"`],
+        { env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home, CPW_SUDO: 'env', CPW_ROOT: root, ...env }, encoding: 'utf8' });
+      return { out: r.stdout + r.stderr, calls: fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '' };
+    };
+    // a proxy on Windows' localhost, an inspecting one: reached via the Windows host, certificates trusted
+    const a = run({ CPW_PROXY: 'http://127.0.0.1:3128', CPW_WINDOWS_CERTS: pem, CPW_FAKE: 'inspect' });
+    assert.match(a.out, /from WSL that's http:\/\/172\.28\.0\.1:3128/);
+    assert.match(a.out, /Trusted 2 certificates from Windows/, a.out);
+    assert.match(a.out, /OK: https:\/\/registry\.npmjs\.org\/ answers through the proxy/);
+    assert.match(a.out, /exit=0\nhttps_proxy=http:\/\/172\.28\.0\.1:3128\nextra=\/etc\/ssl\/certs\/ca-certificates\.crt/);
+    assert.strictEqual(fs.readFileSync(path.join(root, 'etc/apt/apt.conf.d/95cpp-path-workbench-proxy'), 'utf8'), 'Acquire::http::Proxy "http://172.28.0.1:3128";\nAcquire::https::Proxy "http://172.28.0.1:3128";\n');
+    assert.deepStrictEqual(fs.readdirSync(path.join(root, 'usr/local/share/ca-certificates/cpp-path-workbench')), ['windows-001.crt', 'windows-002.crt'], 'the broken one is left out');
+    assert.match(a.calls, /npm config set https-proxy http:\/\/172\.28\.0\.1:3128\nnpm config set cafile \/etc\/ssl\/certs\/ca-certificates\.crt/);
+    assert.match(a.calls, /git config --global http\.proxy http:\/\/172\.28\.0\.1:3128/);
+    const envFile = path.join(home, '.config/cpp-path-workbench/proxy.env');
+    const saved = fs.readFileSync(envFile, 'utf8');
+    assert.match(saved, /export https_proxy='http:\/\/172\.28\.0\.1:3128'/);
+    assert.match(saved, /export ELECTRON_GET_USE_PROXY=1/);
+    assert.match(saved, /export NODE_EXTRA_CA_CERTS='\/etc\/ssl\/certs\/ca-certificates\.crt'/);
+    assert.strictEqual((fs.statSync(envFile).mode & 0o777).toString(8), '600', 'it can hold a proxy password');
+    assert.match(spawnSync('bash', ['-c', `. ${JSON.stringify(envFile)}; echo $GLOBAL_AGENT_HTTPS_PROXY`], { encoding: 'utf8' }).stdout, /^http:\/\/172\.28\.0\.1:3128$/m);
+    run({ CPW_PROXY: 'http://proxy.corp:8080' });
+    assert.strictEqual(fs.readFileSync(path.join(home, '.profile'), 'utf8').split('proxy.env').length - 1, 2, '~/.profile reads it, added once');
+    // mirrored networking: localhost stays localhost
+    assert.match(run({ CPW_PROXY: 'http://localhost:3128', CPW_MIRRORED: '1' }).out, /https_proxy=http:\/\/localhost:3128/);
+    // a proxy that wants a login: says how, and stops
+    const c = run({ CPW_PROXY: 'http://proxy.corp:8080', CPW_FAKE: 'auth' });
+    assert.match(c.out, /wants a login \(HTTP 407\)[\s\S]*px[\s\S]*exit=1/);
+    // no proxy and nothing from Windows: does nothing at all
+    const d = run({});
+    assert.strictEqual(d.calls, '');
+    assert.match(d.out, /^exit=0\nhttps_proxy=\n/);
+    fs.rmSync(world, { recursive: true, force: true });
+  });
 
   await test('windows: the WSL launcher picks the window or the browser, and says what is missing', async () => {
     const { execFileSync, spawnSync } = require('child_process');

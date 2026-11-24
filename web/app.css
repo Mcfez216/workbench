@@ -371,8 +371,52 @@ html[data-retro="no"] .md pre { border-radius: 0 0 var(--radius) var(--radius); 
 .md hr { border: 0; border-top: 1px solid var(--tab-border); }
 .md li { margin: 0.15em 0; }
 .md li.task-item { list-style: none; margin-left: -2ch; }
-.md .task { color: var(--muted); }
+.md .task { color: var(--muted); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+.md .task:hover, .md .task:focus-visible { color: var(--accent); outline: 1px dotted var(--accent); }
 .md .task.done { color: var(--ok); }
+.md .task.pop { animation: task-pop 0.45s ease-out; }
+@keyframes task-pop { 40% { transform: scale(1.35); } }
+@media (prefers-reduced-motion: reduce) { .md .task.pop { animation: none; } }
+
+/* notes: missing links, tags, the footer with backlinks, previews, the graph */
+.md a.wikilink.missing { text-decoration: underline dashed; opacity: 0.7; }
+.md a.wikilink.missing::after { content: ' +'; color: var(--muted); }
+a.tag { color: var(--dialog-fg); text-decoration: none; white-space: nowrap; }
+a.tag:hover, a.tag:focus-visible { text-decoration: underline; }
+.note-foot { margin-top: 2.5em; padding-top: 0.6em; border-top: 1px solid var(--tab-border); }
+.note-foot .note-tags { margin-bottom: 0.6em; display: flex; flex-wrap: wrap; gap: 0.3em 1.2ch; }
+.note-foot ul.backlinks { list-style: none; margin: 0.3em 0 0.8em; padding: 0; }
+.note-foot .backlink { display: flex; gap: 2ch; width: 100%; text-align: left; }
+.note-foot .backlink .name { flex: 0 0 auto; }
+.note-foot .backlink .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-preview { position: fixed; z-index: 60; max-height: 46vh; overflow: hidden; background: var(--dialog-bg); color: var(--dialog-fg); border: 1px solid var(--panel-border); padding: 0.6em 1.5ch; box-shadow: var(--shadow-off) var(--shadow-off) 0 var(--shadow); font-size: 0.92em; pointer-events: auto; }
+html[data-retro="no"] .note-preview { border-radius: var(--radius); box-shadow: 0 6px 24px var(--shadow); }
+.note-preview h1 { font-size: 1.2em; margin: 0.2em 0; }
+.note-preview .callout { margin: 0.6em 0; }
+.tag-cloud { display: flex; flex-wrap: wrap; gap: 0.4em 2ch; align-items: baseline; }
+.tag-cloud sup { margin-left: 0.3ch; font-size: 0.65em; }
+.graph-page { display: flex; flex-direction: column; height: 100%; }
+.graph-bar { padding: 0.4em 1ch; gap: 1ch; flex-wrap: wrap; align-items: center; border-bottom: 1px solid var(--tab-border); }
+.graph-bar .field { width: auto; min-width: 14ch; }
+.graph-svg { flex: 1; width: 100%; min-height: 300px; background: var(--editor-bg); cursor: grab; touch-action: none; user-select: none; }
+.graph-svg:active { cursor: grabbing; }
+.graph-links line { stroke: var(--muted); stroke-opacity: 0.45; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.graph-node { cursor: pointer; }
+.graph-node circle { fill: var(--muted); stroke: var(--editor-bg); stroke-width: 1.5; }
+.graph-node circle[data-phase="0"] { fill: var(--side-dir); }
+.graph-node circle[data-phase="1"] { fill: var(--ok); }
+.graph-node circle[data-phase="2"] { fill: var(--accent); }
+.graph-node circle[data-phase="3"] { fill: var(--warn); }
+.graph-node circle[data-phase="4"], .graph-node circle[data-phase="5"], .graph-node circle[data-phase="6"] { fill: var(--error); }
+.graph-node text { fill: var(--editor-fg); font-size: 10px; opacity: 0.8; paint-order: stroke; stroke: var(--editor-bg); stroke-width: 3px; }
+.graph-node.focus circle { stroke: var(--editor-fg); stroke-width: 3; }
+.graph-node.focus text { font-weight: bold; opacity: 1; }
+.graph-node:focus { outline: none; }
+.graph-node:focus circle { stroke: var(--accent); stroke-width: 3; }
+.graph-svg.hovering .graph-node:not(.near), .graph-svg.searching .graph-node:not(.hit) { opacity: 0.25; }
+.graph-svg.hovering .graph-links line:not(.near) { stroke-opacity: 0.1; }
+.graph-links line.near { stroke: var(--accent); stroke-opacity: 0.9; }
+.graph-node.hit text, .graph-node.near text { opacity: 1; }
 
 /* callouts: a dialog box (retro) or a tinted card (modern) */
 .md .callout { position: relative; background: var(--callout-bg); color: var(--callout-fg); padding: 1.3em 2.5ch 0.7em; margin: 1.4em 0; --c-title: var(--callout-title); --c-bg: var(--callout-bg); }

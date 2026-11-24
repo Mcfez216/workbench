@@ -60,6 +60,12 @@ async function configure({ root, fresh = false }) {
   const build = buildDir(root);
   ensureQuery(build);
   const args = ['-S', root, '-B', build, `-DCMAKE_BUILD_TYPE=${cfg.build.buildType || 'Debug'}`, '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON', ...(fresh ? ['--fresh'] : [])];
+  // Windows: CMake would look for Visual Studio. The first configure picks
+  // Ninja and the compilers in Settings (clang from llvm-mingw by default);
+  // a build folder keeps what it was made with.
+  if (require('./platform').WIN && (fresh || !fs.existsSync(path.join(build, 'CMakeCache.txt')))) {
+    args.push('-G', 'Ninja', `-DCMAKE_C_COMPILER=${cfg.build.cCompiler || 'clang'}`, `-DCMAKE_CXX_COMPILER=${cfg.build.compiler || 'clang++'}`);
+  }
   const r = await execStream({ cmd: 'cmake', args, cwd: root, title: fresh ? 'CMake: fresh configure' : 'CMake: configure', source: 'cmake' });
   model.delete(root);
   if (r.code === 0) api.broadcast('cmake.changed', { root });
@@ -189,7 +195,7 @@ async function run({ file, root, target, args = '', tool }) {
     if (tool === 'valgrind') return valgrindSingle({ file, args });
     const r = await buildSingle({ file });
     if (r.code !== 0) return { ok: false, ...r, output: undefined };
-    const term = runProgram({ cwd: path.dirname(file), command: `./${q(path.basename(r.exe))} ${args}`.trim(), title: `run: ${path.basename(r.exe)}` });
+    const term = runProgram({ cwd: path.dirname(file), command: `./${q(path.basename(r.exe))} ${args}`.trim(), title: `run: ${path.basename(r.exe)}`, flags: r.flags });
     return { ok: true, ...r, terminal: term, target: path.basename(r.exe) };
   }
   if (rt.failed) return { ok: false, ...rt.failed };
@@ -203,7 +209,9 @@ async function run({ file, root, target, args = '', tool }) {
   const r = await build({ root: rt.root, target: rt.target.name });
   if (r.code !== 0) return { ok: false, ...r };
   const vg = tool === 'valgrind' ? 'valgrind --leak-check=full --track-origins=yes --error-exitcode=99 ' : '';
-  const term = runProgram({ cwd: rt.root, command: `${vg}${q(rt.target.artifact)} ${args}`.trim(), title: `${vg ? 'valgrind' : 'run'}: ${rt.target.name}` });
+  // a Debug build has the sanitizers on (the project's CMakeLists.txt)
+  const debug = (config.get().build.buildType || 'Debug') === 'Debug';
+  const term = runProgram({ cwd: rt.root, command: `${vg}${q(rt.target.artifact)} ${args}`.trim(), title: `${vg ? 'valgrind' : 'run'}: ${rt.target.name}`, flags: !vg && debug ? ['-fsanitize=address'] : [] });
   return { ok: true, ...r, target: rt.target.name, terminal: term };
 }
 
@@ -221,7 +229,7 @@ async function debug({ file, line, root, target, args = '' }) {
   const r = await build({ root: rt.root, target: rt.target.name });
   if (r.code !== 0) return { ok: false, ...r };
   const stop = file && line && /\.(cpp|cc|cxx|c|hpp|hh|h|ipp)$/.test(file) ? `break ${file}:${line}` : 'break main';
-  const argv = ['gdb', '-q', '-ex', 'set pagination off', '-ex', stop, '-ex', 'run', '--args', rt.target.artifact, ...String(args).split(/\s+/).filter(Boolean)];
+  const argv = [require('./platform').gdb(), '-q', '-ex', 'set pagination off', '-ex', stop, '-ex', 'run', '--args', rt.target.artifact, ...String(args).split(/\s+/).filter(Boolean)];
   const term = pty.open({ cwd: rt.root, title: `gdb: ${rt.target.name}`, argv, env: { ASAN_OPTIONS: 'detect_leaks=0' } });
   return { ok: true, ...r, target: rt.target.name, terminal: term, breakpoint: stop.slice(6) };
 }

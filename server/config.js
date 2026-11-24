@@ -12,6 +12,7 @@ const HOME = os.homedir();
 const CONFIG_DIR = path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, '.config'), 'cpp-path-workbench');
 const DATA_DIR = path.join(process.env.XDG_DATA_HOME || path.join(HOME, '.local', 'share'), 'cpp-path-workbench');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
+const DEFAULT_CC = require('./platform').defaultCompilers();   // OpenBSD: clang, its own compiler
 const APP_PARENT = path.resolve(__dirname, '..', '..');     // the folder this app was unzipped into
 
 function firstExisting(paths) {
@@ -58,9 +59,9 @@ function defaults() {
     build: {
       buildType: 'Debug',        // Debug has ASan + UBSan on (the vault's CMakeLists.txt)
       jobs: Math.max(1, os.cpus().length),
-      compiler: 'g++',           // for single files, the sandbox and the judge: g++ or clang++
+      compiler: DEFAULT_CC.compiler,   // for single files, the sandbox and the judge: g++ or clang++ (OpenBSD: clang++)
       std: 'c++20',
-      cCompiler: 'gcc',          // the same for C: gcc or clang
+      cCompiler: DEFAULT_CC.cCompiler, // the same for C: gcc or clang
       cStd: 'c17',
       sandboxFlags: ['-Wall', '-Wextra', '-Wpedantic', '-g', '-O0', '-fsanitize=address,undefined', '-fno-omit-frame-pointer'],
     },
@@ -153,7 +154,7 @@ function dataPath(...parts) {
 function expand(p) {
   if (!p) return p;
   if (p === '~') return HOME;
-  if (p.startsWith('~/')) return path.join(HOME, p.slice(2));
+  if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(HOME, p.slice(2));
   return p;
 }
 

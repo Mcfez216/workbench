@@ -283,8 +283,9 @@ export function setKeymap(kind) {
 function showMode(text) { status.set('mode', text ? ` ${text} ` : '', { side: 'left', order: 1, cls: 'mode' }); }
 
 // ------------------------------------------------------------------ clangd
-function fileUri(p) { return 'file://' + p.split('/').map(encodeURIComponent).join('/'); }
-function uriPath(u) { return decodeURIComponent(u.replace(/^file:\/\//, '')); }
+// (Windows: C:/x/y.cpp is file:///C:/x/y.cpp, the drive kept as it is)
+function fileUri(p) { return 'file://' + (/^[A-Za-z]:\//.test(p) ? '/' : '') + p.split('/').map((s, i) => (i === 0 && /^[A-Za-z]:$/.test(s) ? s : encodeURIComponent(s))).join('/'); }
+function uriPath(u) { return decodeURIComponent(u.replace(/^file:\/\//, '')).replace(/^\/([A-Za-z]:\/)/, '$1'); }
 
 class KPWorkspace extends Workspace {
   constructor(client) { super(client); this.files = []; this.versions = {}; }

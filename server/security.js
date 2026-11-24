@@ -39,7 +39,7 @@ const PROTECTIONS = {
 async function checksec({ exe }) {
   const f = config.expand(exe);
   if (!fs.existsSync(f)) throw new Error(`${path.basename(f)} isn't built yet`);
-  if (!isElf(f)) throw new Error(`${path.basename(f)} isn't a Linux program (ELF)`);
+  if (!isElf(f)) throw new Error(require('./platform').WIN ? 'The binary inspector reads Linux programs (ELF), and Windows makes .exe (PE) ones: this part of the security lab needs Linux or WSL' : `${path.basename(f)} isn't a Linux program (ELF)`);
   const [h, l, d, s] = await Promise.all([run('readelf', ['-W', '-h', f]), run('readelf', ['-W', '-l', f]), run('readelf', ['-W', '-d', f]), run('readelf', ['-W', '-s', f])]);
   if (h.code === 127) throw new Error(h.err);
   const type = (h.out.match(/Type:\s+(\w+)/) || [])[1] || '?';
@@ -75,7 +75,7 @@ async function compare({ source, lang = 'c' }) {
   fs.writeFileSync(src, source);
   const out = [];
   for (const v of VARIANTS) {
-    const exe = path.join(dir, `prog-${v.id}`);
+    const exe = path.join(dir, require('./platform').exe(`prog-${v.id}`));
     try { fs.rmSync(exe); } catch (e) { /* first time */ }
     const r = await execStream({ cmd: tc.cc, args: [`-std=${tc.std}`, ...v.flags, '-o', exe, src], cwd: dir, quiet: true, title: `hardening: ${v.label}` });
     if (r.code !== 0) { out.push({ ...v, ok: false, error: r.output.slice(0, 1500) }); continue; }
@@ -115,7 +115,8 @@ async function fuzz({ file, source, lang, seconds = 30 }) {
   const corpus = path.join(work, `corpus-${name}`);
   fs.mkdirSync(crashes, { recursive: true });
   fs.mkdirSync(corpus, { recursive: true });
-  const exe = path.join(work, name);
+  const exe = path.join(work, require('./platform').exe(name));
+  require('./platform').sanitizerFlags(['-fsanitize=fuzzer']);   // says why there's no fuzzing on OpenBSD
   const b = await execStream({ cmd: cc, args: [isC ? `-std=${toolchain('c').std}` : `-std=${toolchain('cpp').std}`, '-g', '-O1', '-fsanitize=fuzzer,address,undefined', '-fno-sanitize-recover=all', '-I', dir, '-o', exe, target, ...others], cwd: dir, title: `fuzz: build ${path.basename(target)}` });
   if (b.code !== 0) {
     if (/libclang_rt\.(fuzzer|asan)/.test(b.output)) throw new Error(`clang's fuzzing library is missing: ${require('./distro').installHint('libclang-rt')}`);
@@ -187,7 +188,7 @@ ${isC ? '' : 'extern "C" '}int LLVMFuzzerTestOneInput(const uint8_t *data, size_
 async function inspect({ exe, what = 'overview', symbol }) {
   const f = config.expand(exe);
   if (!fs.existsSync(f)) throw new Error(`${path.basename(f)} isn't there (build it first)`);
-  if (!isElf(f)) throw new Error(`${path.basename(f)} isn't a Linux program (ELF)`);
+  if (!isElf(f)) throw new Error(require('./platform').WIN ? 'The binary inspector reads Linux programs (ELF), and Windows makes .exe (PE) ones: this part of the security lab needs Linux or WSL' : `${path.basename(f)} isn't a Linux program (ELF)`);
   if (what === 'overview') {
     const h = await run('readelf', ['-W', '-h', f]);
     const pick = (k) => ((h.out.match(new RegExp(`${k}:\\s+(.*)`)) || [])[1] || '').trim();

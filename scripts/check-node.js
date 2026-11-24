@@ -27,6 +27,9 @@ if (conda) {
     '  less nodesource_setup.sh          # read it first',
     '  sudo -E bash nodesource_setup.sh',
     '  sudo apt-get install -y nodejs');
+} else if (process.platform === 'openbsd') {
+  lines.push('On OpenBSD: doas pkg_add node   (OpenBSD 7.7 or newer has a new enough one),',
+    'or run sh scripts/setup-openbsd.sh, which installs it with everything else.');
 } else {
   lines.push('On Fedora: sudo dnf install nodejs, then check that node --version is 22.12 or newer.');
 }

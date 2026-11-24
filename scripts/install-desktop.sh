@@ -1,6 +1,7 @@
 #!/bin/sh
 # Puts C++ Path Workbench in your app launcher (GNOME: Activities → type "C++";
-# in WSL, WSLg may also add it to the Windows Start menu).
+# in WSL, WSLg may also add it to the Windows Start menu; on OpenBSD, any
+# desktop that reads ~/.local/share/applications: Xfce, KDE, GNOME...).
 # Run from the project folder:  npm run install-desktop
 # It sits happily next to the Kernel Path Workbench: separate name, icon,
 # settings folder and window.
@@ -23,7 +24,7 @@ cat > "$APPS/cpp-path-workbench.desktop" <<DESKTOP
 Type=Application
 Name=C++ Path Workbench
 Comment=Editor, CMake, tests, gdb, sandbox, judge, terminal, git and guides for the C++ Path
-Exec=sh -c 'cd "$DIR" && PATH="$NODE_BIN:\$PATH" exec npm start'
+Exec=sh -c 'cd "$DIR" && PATH="$NODE_BIN:/usr/local/bin:\$PATH" exec npm start'
 Icon=cpp-path-workbench
 Terminal=false
 Categories=Development;IDE;

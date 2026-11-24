@@ -95,8 +95,18 @@ async function rename({ from, to }) {
 }
 
 // Never rm: move to the desktop trash, so a slip is recoverable.
+// (Windows: the Recycle Bin, through .NET's VisualBasic file helpers.)
+const PS_RECYCLE = 'Add-Type -AssemblyName Microsoft.VisualBasic; $f = $env:CPW_TRASH; '
+  + 'if (Test-Path -LiteralPath $f -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($f, \'OnlyErrorDialogs\', \'SendToRecycleBin\') } '
+  + 'else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($f, \'OnlyErrorDialogs\', \'SendToRecycleBin\') }';
 function trash({ file }) {
   const f = abs(file);
+  if (require('./platform').WIN) {
+    return new Promise((resolve, reject) => {
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', PS_RECYCLE], { env: { ...process.env, CPW_TRASH: f }, windowsHide: true },
+        (err, so, se) => err ? reject(new Error(`Couldn't move it to the Recycle Bin: ${se || err.message}`)) : resolve({ ok: true }));
+    });
+  }
   return new Promise((resolve, reject) => {
     execFile('gio', ['trash', f], (err, so, se) => err ? reject(new Error(`Couldn't move to trash: ${se || err.message}`)) : resolve({ ok: true }));
   });

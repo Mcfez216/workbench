@@ -40,6 +40,10 @@ tell() {
 }
 
 { echo; echo "=== $(date '+%F %T') mode=$MODE dir=$DIR"; } >>"$LOG"
+# behind a company proxy: what the setup saved (Electron's fetch, git, npm)
+PROXY_ENV="${XDG_CONFIG_HOME:-$HOME/.config}/cpp-path-workbench/proxy.env"
+# shellcheck disable=SC1090
+[ -f "$PROXY_ENV" ] && . "$PROXY_ENV"
 
 # The shortcut runs a login shell, so nvm / ~/.profile PATHs are there; a
 # conda base environment would put its own old node first.

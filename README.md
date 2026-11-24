@@ -39,6 +39,7 @@ install side by side: different name, icon, settings folder and window.
 | **Terminal** | F5. Real shells, several at once, still there when the window reloads. "Paste into terminal" on a note's commands goes to a shell, never into a program you're running, and `_code` becomes your `~/cpp-path`. |
 | **Git** | F6. What changed, stage a file or one hunk, commit (Signed-off-by is there, off by default), amend, branches, the log, format-patch. One click adds `build/` and `.cache/` (clangd's index) to `.gitignore`. |
 | **Guides** | F1. **All your vaults at once**: the CPP-Path vault, a C course, your own notes, each in its own section of the sidebar (fold it away, open its start note, search just it, remove it). A `[[link]]` looks in its own note's vault first, so two vaults can both have a "Pointers" note. Rendered with callouts, tables, `[[links]]`, and buttons on code blocks: **Copy**, **Paste into terminal**, **Try in sandbox**. `_code/...` paths open your copy of the file. |
+| **Notes** | Built in, no plugins. At the bottom of every note: its **tags** and **what links here** (with the line that links). Rest the pointer on a `[[link]]` to **preview** that note. A link to a note that doesn't exist yet is dashed: click it to **start that note**. **Task boxes** (`- [ ]`) tick off with a click, saved in the note. **New note** (Ctrl+Alt+N, from the vault's `Templates/` with `{{title}}` and `{{date}}`), **Today's note** (Ctrl+Alt+D, `Daily/2026-11-24.md`), **Graph** (Ctrl+Alt+G: every note a dot, every link a line; drag, zoom, hover for neighbours, "near this note only"), **Tags** (a cloud of every `#tag` and `tags: [...]`), **Random note**. All in Guides → and on the Guides sidebar. |
 | **Revise** | Ctrl+Shift+V. Flashcards from every vault (or one) in three decks: every check-yourself question, every "Why this matters", and the cheat-sheet tables (which container, what an ASan error means), with a Leitner schedule. |
 | **IRC** | Tools → IRC (Ctrl+Shift+L). Libera.Chat, `#c++-basic` to start. Logs in with SASL (the password lives in the GNOME keyring) or a CertFP certificate. |
 | **Mail** | Tools → Mail (Ctrl+Shift+M). The NeoMutt-style Gmail reader from the Kernel Path Workbench. |
@@ -82,7 +83,14 @@ autism, or just tired). All built in; all optional.
 
 ## Install
 
-**Windows:** double-click **`Install on Windows.cmd`** in the app's folder.
+**Windows** has two versions:
+
+- **`Install on Windows.cmd`** (WSL): the full Linux toolchain inside WSL,
+  including Valgrind. Below.
+- **`Install on Windows (no WSL).cmd`**: runs directly on Windows, for when
+  WSL isn't allowed or won't install. [Windows without WSL](#windows-without-wsl).
+
+**Windows (WSL):** double-click **`Install on Windows.cmd`** in the app's folder.
 It runs inside WSL (Ubuntu on Windows), so the sanitizers, Valgrind, gdb and
 the terminal work exactly as on Linux, and you never have to type a Linux
 command. It asks before each big step:
@@ -160,6 +168,56 @@ in a browser (in WSL, your Windows browser works). Everything works there
 except the Music tab and the few keys a browser keeps for itself (Ctrl+W,
 Ctrl+N, Ctrl+T, Ctrl+Shift+W).
 
+### Behind a company proxy
+
+Both Windows installers find the proxy the way your browser does (Windows'
+proxy settings, including a setup script, then WinHTTP's); `-Proxy
+http://host:port` picks one, `-NoProxy` none. With WSL, the setup points apt,
+curl, npm, git and Electron's download at it (`scripts/wsl-proxy.sh`; a proxy
+on Windows' localhost is reached through the Windows host). If the proxy
+inspects HTTPS, so that Ubuntu sees "certificate verify failed", the root
+certificates Windows trusts are added to Ubuntu's (only then). Everything is
+saved in `~/.config/cpp-path-workbench/proxy.env`, which your terminals and
+the launcher read; delete it to stop. A proxy that wants a login (HTTP 407)
+needs a helper such as [px](https://github.com/genotrance/px), which signs in
+with your Windows account: run it, then install with `-Proxy http://localhost:3128`.
+
+### Windows without WSL
+
+Double-click **`Install on Windows (no WSL).cmd`**. No administrator rights:
+everything goes in `%LOCALAPPDATA%\CppPathWorkbenchNative`. It downloads a
+portable toolchain, each piece a pinned version checked against the SHA-256
+its project publishes:
+
+| | |
+|---|---|
+| llvm-mingw | clang and clang++ with AddressSanitizer and UBSan (the default compilers) |
+| w64devkit | gcc, **gdb** (debugging and the memory view), make, and a small Unix shell (busybox: `ls`, `grep`, `cat`...) so the guides' commands work in the terminal |
+| CMake, Ninja, MinGit | projects and git |
+| Node.js | the setup and the app's helpers |
+
+then the app and its Electron window, and puts **C++ Path Workbench
+(Windows)** in the Start menu. Downloads go through the proxy with your
+Windows sign-in; if one is blocked, the installer says where to download it
+by hand and where to put it. *Uninstall C++ Path Workbench* removes it all
+(your settings, notes and code stay).
+
+What's different from Linux and WSL:
+
+- **No Valgrind** (it doesn't exist for Windows) and **no LeakSanitizer**:
+  AddressSanitizer still finds overflows and use-after-free; leaks show up
+  in the exercises' tests but not as a sanitizer report.
+- gcc on Windows has no sanitizer runtimes, so with gcc chosen, "sanitizers
+  on" means UBSan stopping the program (*Illegal instruction*). clang, the
+  default, has both.
+- The terminal is w64devkit's shell (PowerShell if it's missing), through
+  Windows' ConPTY.
+- Passwords (IRC, mail) are encrypted with Windows' DPAPI, readable only by
+  your Windows account.
+- The security lab's binary inspector reads Linux programs (ELF) only.
+- clangd, clang-tidy and clang-format come with llvm-mingw only in some
+  releases; without them the editor still works, with less help as you type.
+
 ### WSL notes
 
 - The window needs **WSLg**, which comes with Windows 11's WSL (and
@@ -174,6 +232,44 @@ Ctrl+N, Ctrl+T, Ctrl+Shift+W).
   one is stored, a window should ask you to choose a keyring password; after
   a WSL restart it may ask for it again. If the app says no keyring is
   answering, install what the message says and run `wsl --shutdown`.
+
+### OpenBSD
+
+It runs on OpenBSD too (7.7 or newer, amd64 or arm64). In a terminal, from the app's folder:
+
+```sh
+sh scripts/setup-openbsd.sh
+```
+
+That installs the packages with `doas pkg_add` (Node.js, git, CMake, ninja,
+gdb, Python, Chromium, and clangd/clang-tidy, cppcheck, ripgrep, Valgrind
+where they're available), the app's npm packages, and a launcher in your
+desktop's menu. Read it first; `--dry-run` shows what it would do. Then
+`npm start`, or the menu entry.
+
+What's different from Linux:
+
+- **The window is Chromium in app mode**, not Electron (which doesn't exist
+  for OpenBSD): a plain window with no tabs, no address bar and its own
+  profile (in `~/.config/chromium/cpp-path-workbench`, a folder Chromium's
+  unveil allows). Without Chromium, Firefox opens it. The backend stops by
+  itself about 20 seconds after you close the window. `CPW_BROWSER` picks a
+  browser; `node scripts/app-window.js --check` says which it would use.
+- **The compiler is clang**, OpenBSD's own (`cc`, `c++`): new settings
+  default to clang and clang++. gcc is a package that installs as `egcc`.
+- **gdb** is the `gdb` package, which installs as `egdb`; the app finds it
+  (debugging, the memory view).
+- **No AddressSanitizer.** "Sanitizers on" there means UBSan in trap mode
+  (undefined behaviour stops the program with *Illegal instruction*, no
+  runtime library needed) plus OpenBSD's own strict malloc
+  (`MALLOC_OPTIONS=S`: guard pages, junk-filled and delayed frees), which
+  catches double frees, many use-after-frees and heap overflows with a
+  message from `free()`. The projects' CMakeLists.txt does the same on
+  OpenBSD. The vault's ASan exercises still teach the bugs; the reports look
+  different.
+- No libFuzzer (fuzz on Linux or WSL); Valgrind is amd64 only.
+- Passwords (IRC, mail) need a Secret Service keyring (`gnome-keyring`) in
+  your desktop session, as on Linux.
 
 ## Setting up IRC and mail
 
