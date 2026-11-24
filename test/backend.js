@@ -650,6 +650,10 @@ async function test(name, fn) {
       assert.ok(!/[^\r]\n/.test(text), `${f}: CRLF line endings`);
       assert.ok(!/[^\x00-\x7f]/.test(text), `${f}: ASCII only`);
     }
+    // the wsl.exe helper must stay a plain function: with param() PowerShell takes wsl's -d / -e / -v as its own -Debug, -ErrorAction, -Verbose
+    const ps = fs.readFileSync(path.join(__dirname, '..', 'windows', 'Install.ps1'), 'latin1');
+    const wslFn = ps.slice(ps.indexOf('function Wsl {'), ps.indexOf('\n}', ps.indexOf('function Wsl {')));
+    assert.ok(wslFn && !/param\s*\(/.test(wslFn) && /& wsl\.exe @args/.test(wslFn), 'Wsl passes its arguments straight through');
   });
 
   await test('exercises: every starter fails step 1, every solution passes them all; the CTF flags are reachable', async () => {

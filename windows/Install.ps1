@@ -58,12 +58,14 @@ function Ask([string]$question) {
 }
 
 # Run wsl.exe and hand back its output as clean lines (no UTF-16 NULs)
+# (A plain function, on purpose: with a param() block PowerShell would read
+# wsl's own -d, -e, -v as its common parameters, -Debug, -ErrorAction,
+# -Verbose, instead of passing them on. $args passes everything through.)
 function Wsl {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$WslArgs)
     # Windows PowerShell turns a native program's stderr into errors, which
     # 'Stop' would make fatal: wsl.exe writes warnings there
     $ErrorActionPreference = 'Continue'
-    $out = & wsl.exe @WslArgs 2>&1
+    $out = & wsl.exe @args 2>&1
     $script:WslExit = $LASTEXITCODE
     return @($out | ForEach-Object { ([string]$_).Replace("`0", '').Trim() } | Where-Object { $_ -ne '' })
 }
