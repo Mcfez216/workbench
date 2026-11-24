@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const config = require('./config');
+const platform = require('./platform');
 const pty = require('./pty');
 const { OutputParser } = require('./parse');
 
@@ -87,8 +88,11 @@ function which(cmd, extraDirs = []) {
 // A program runs in its own terminal tab, so it can read your typing
 // (std::cin!). Its output is watched: an AddressSanitizer or UBSan report
 // becomes a problem pointing at the line in your code.
-function runProgram({ cwd, command, title, env }) {
-  const shell = process.env.SHELL || '/bin/bash';
+// flags: what it was built with. On OpenBSD a "sanitizers on" build runs
+// with the strict malloc (MALLOC_OPTIONS=S), which stands in for ASan there.
+function runProgram({ cwd, command, title, env, flags }) {
+  const shell = platform.shell();
+  env = { ...platform.runEnv(flags || []), ...(env || {}) };
   const script = `${command}\nstatus=$?\nprintf '\\n\\033[7m[exited with status %s - press Enter to close]\\033[0m' "$status"\nread -r _`;
   return pty.open({ cwd, title: title || `run: ${command}`, argv: [shell, '-c', script], env }, sanitizerWatch(cwd, title || command));
 }
@@ -138,21 +142,21 @@ const NO_SANITIZERS = (flags) => flags.filter((f) => !/^-fsanitize/.test(f));
 function singleArgs(file, variant = 'run') {
   const cfg = config.get();
   const tc = toolchain(isC(file) ? 'c' : 'cpp');
-  let flags = [...cfg.build.sandboxFlags];
+  let flags = platform.sanitizerFlags([...cfg.build.sandboxFlags]);
   if (variant === 'valgrind') flags = [...NO_SANITIZERS(flags).filter((f) => !/^-O/.test(f)), '-O0', '-g'];
   if (variant === 'debug') flags = [...flags.filter((f) => !/^-O/.test(f)), '-O0', '-g'];
   if (variant === 'release') flags = [...NO_SANITIZERS(flags).filter((f) => !/^-O|^-g$/.test(f)), '-O2'];
   const out = outputFor(file) + (variant === 'valgrind' ? '.vg' : variant === 'release' ? '.release' : '');
   const libs = tc.lang === 'c' ? ['-lm'] : [];
-  return { tc, out, args: [`-std=${tc.std}`, ...flags, '-o', out, file, ...libs] };
+  return { tc, out, flags, args: [`-std=${tc.std}`, ...flags, '-o', out, file, ...libs] };
 }
 
 async function buildSingle({ file, variant }) {
   if (!file || !SOURCE_EXT.test(file)) throw new Error('This file is not in a CMake project, and it is not a .c or .cpp file to compile on its own');
-  const { tc, out, args } = singleArgs(file, variant);
+  const { tc, out, args, flags } = singleArgs(file, variant);
   const r = await execStream({ cmd: tc.cc, args, cwd: path.dirname(file), title: `${tc.cc} ${path.basename(file)}` });
   // exe, not output: execStream's result has the compiler's text in output
-  return { ...r, kind: 'single', exe: out, lang: tc.lang, output: undefined };
+  return { ...r, kind: 'single', exe: out, lang: tc.lang, flags, output: undefined };
 }
 
 function q(s) { return `'${String(s).replace(/'/g, `'\\''`)}'`; }
@@ -162,7 +166,7 @@ async function debugSingle({ file, line, args = '' }) {
   const r = await buildSingle({ file, variant: 'debug' });
   if (r.code !== 0) return { ok: false, ...r, output: undefined };
   const stop = line ? `break ${file}:${line}` : 'break main';
-  const argv = ['gdb', '-q', '-ex', 'set pagination off', '-ex', stop, '-ex', 'run', '--args', r.exe, ...String(args).split(/\s+/).filter(Boolean)];
+  const argv = [platform.gdb(), '-q', '-ex', 'set pagination off', '-ex', stop, '-ex', 'run', '--args', r.exe, ...String(args).split(/\s+/).filter(Boolean)];
   const term = pty.open({ cwd: path.dirname(file), title: `gdb: ${path.basename(r.exe)}`, argv, env: { ASAN_OPTIONS: 'detect_leaks=0' } });
   return { ok: true, ...r, terminal: term, target: path.basename(r.exe), breakpoint: stop.slice(6) };
 }
@@ -197,12 +201,12 @@ async function sandboxRun({ source, compiler, std, lang = 'cpp', tool }) {
   fs.writeFileSync(file, source);
   const vg = tool === 'valgrind';
   if (vg && !which('valgrind')) throw new Error(`Valgrind is not installed (${hint('valgrind')})`);
-  const flags = vg ? [...NO_SANITIZERS(cfg.build.sandboxFlags).filter((f) => !/^-O/.test(f)), '-O0', '-g'] : cfg.build.sandboxFlags;
+  const flags = vg ? [...NO_SANITIZERS(cfg.build.sandboxFlags).filter((f) => !/^-O/.test(f)), '-O0', '-g'] : platform.sanitizerFlags(cfg.build.sandboxFlags);
   const out = path.join(dir, vg ? 'scratch-vg' : 'scratch');
   const libs = tc.lang === 'c' ? ['-lm'] : [];
   const res = await execStream({ cmd: tc.cc, args: [`-std=${tc.std}`, ...flags, '-o', out, file, ...libs], cwd: dir, title: `sandbox: ${tc.cc} -std=${tc.std}` });
   if (res.code !== 0) return { ok: false, ...res, file, lang: tc.lang, output: undefined };
-  const term = runProgram({ cwd: dir, command: vg ? `${VALGRIND.join(' ')} ./scratch-vg` : './scratch', title: vg ? 'sandbox: valgrind' : 'sandbox: scratch' });
+  const term = runProgram({ cwd: dir, command: vg ? `${VALGRIND.join(' ')} ./scratch-vg` : './scratch', title: vg ? 'sandbox: valgrind' : 'sandbox: scratch', flags });
   return { ok: true, ...res, file, lang: tc.lang, output: undefined, terminal: term };
 }
 
@@ -360,7 +364,7 @@ function format({ file, text }) {
 
 // ------------------------------------------------------------------ what's installed
 function tools() {
-  const names = ['gcc', 'g++', 'clang', 'clang++', 'cmake', 'ctest', 'ninja', 'gdb', 'clangd', 'clang-tidy', 'clang-format', 'cppcheck', 'valgrind', 'git', 'rg'];
+  const names = ['gcc', 'g++', 'clang', 'clang++', 'cmake', 'ctest', 'ninja', 'gdb', ...(platform.BSD ? ['egdb'] : []), 'clangd', 'clang-tidy', 'clang-format', 'cppcheck', 'valgrind', 'git', 'rg'];
   const out = {};
   for (const n of names) out[n] = !!which(n);
   out['secret-tool'] = !!which('secret-tool');

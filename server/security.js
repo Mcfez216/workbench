@@ -116,6 +116,7 @@ async function fuzz({ file, source, lang, seconds = 30 }) {
   fs.mkdirSync(crashes, { recursive: true });
   fs.mkdirSync(corpus, { recursive: true });
   const exe = path.join(work, name);
+  require('./platform').sanitizerFlags(['-fsanitize=fuzzer']);   // says why there's no fuzzing on OpenBSD
   const b = await execStream({ cmd: cc, args: [isC ? `-std=${toolchain('c').std}` : `-std=${toolchain('cpp').std}`, '-g', '-O1', '-fsanitize=fuzzer,address,undefined', '-fno-sanitize-recover=all', '-I', dir, '-o', exe, target, ...others], cwd: dir, title: `fuzz: build ${path.basename(target)}` });
   if (b.code !== 0) {
     if (/libclang_rt\.(fuzzer|asan)/.test(b.output)) throw new Error(`clang's fuzzing library is missing: ${require('./distro').installHint('libclang-rt')}`);

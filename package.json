@@ -8,7 +8,7 @@
   "scripts": {
     "preinstall": "node scripts/check-node.js",
     "postinstall": "node scripts/get-electron.js",
-    "start": "electron .",
+    "start": "node scripts/start.js",
     "prestart": "node scripts/check-node.js && node scripts/build-web.js",
     "web": "node server/index.js --web",
     "preweb": "node scripts/check-node.js && node scripts/build-web.js",
@@ -18,7 +18,8 @@
     "pretest": "node scripts/build-web.js",
     "smoke": "electron test/electron-smoke.js",
     "install-desktop": "sh scripts/install-desktop.sh",
-    "setup-ubuntu": "bash scripts/setup-ubuntu.sh"
+    "setup-ubuntu": "bash scripts/setup-ubuntu.sh",
+    "setup-openbsd": "sh scripts/setup-openbsd.sh"
   },
   "dependencies": {
     "imapflow": "2.5.2",

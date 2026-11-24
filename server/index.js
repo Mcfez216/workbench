@@ -34,6 +34,11 @@ const MIME = {
 
 const handlers = new Map();
 const sockets = new Set();
+// Browser-window mode (OpenBSD, scripts/app-window.js): the backend stops
+// once its window has been closed for a while. Long enough to ride out a
+// reload; CPW_EXIT_WHEN_CLOSED=seconds.
+let idleTimer = null, everConnected = false;
+const IDLE_MS = Math.max(2, Number(process.env.CPW_EXIT_WHEN_CLOSED) || 20) * 1000;
 
 function register(name, fn) { handlers.set(name, fn); }
 function broadcast(ev, d) {
@@ -138,7 +143,9 @@ function startServer({ port = 0, host = '127.0.0.1' } = {}) {
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
       sockets.add(ws);
-      ws.on('close', () => sockets.delete(ws));
+      everConnected = true;
+      clearTimeout(idleTimer);
+      ws.on('close', () => { sockets.delete(ws); if (!sockets.size && api.onLastClose) idleTimer = setTimeout(api.onLastClose, IDLE_MS); });
       ws.on('message', async (raw) => {
         let msg;
         try { msg = JSON.parse(raw); } catch (e) { return; }
@@ -177,6 +184,11 @@ if (require.main === module) {
     if (process.env.CPW_URL_FILE) fs.writeFileSync(process.env.CPW_URL_FILE, s.url);
   });
   const stop = () => { for (const fn of (api.onExit || [])) try { fn(); } catch (e) {} process.exit(0); };
+  if (process.env.CPW_EXIT_WHEN_CLOSED) {
+    api.onLastClose = () => { console.log('The window was closed: stopping.'); stop(); };
+    // and if no window ever turns up (the browser didn't start), don't linger
+    setTimeout(() => { if (!everConnected) { console.log('No window connected in 2 minutes: stopping.'); stop(); } }, 120000).unref();
+  }
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
 }

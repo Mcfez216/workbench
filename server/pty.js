@@ -27,7 +27,7 @@ function frame(kind, payload) {
 // reports in a program you ran.
 function open({ cwd, title, argv, rows = 24, cols = 80, env: extraEnv }, hooks) {
   const id = String(nextId++);
-  const shell = process.env.SHELL || '/bin/bash';
+  const shell = require('./platform').shell();
   const dir = expand(cwd) || os.homedir();
   const program = argv && argv.length ? argv : [shell, '-l'];
   const env = { ...process.env, ...(extraEnv && typeof extraEnv === 'object' ? extraEnv : {}) };

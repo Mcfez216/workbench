@@ -523,6 +523,101 @@ async function test(name, fn) {
     await assert.rejects(call('guides.read', { file: path.join(PROJ, 'CMakeLists.txt') }), /outside your vaults/);
   });
 
+  await test('notes: backlinks, the graph, tags, new and daily notes, ticking tasks', async () => {
+    const l = await call('guides.list');
+    const cv = l.vaults.find((v) => v.name === 'C-Path'), mv = l.vaults.find((v) => v.name === 'Scratch Notes');
+    const made = [];
+    try {
+      // a link to Pointers from each vault's start note lands in its own vault's Pointers
+      const myPtr = path.join(mv.path, 'Pointers.md'), cPtr = path.join(cv.path, 'Phase 1', 'Pointers.md');
+      const b1 = await call('guides.backlinks', { file: myPtr });
+      assert.deepStrictEqual(b1.from.map((x) => x.name), ['Start Here']);
+      assert.match(b1.from[0].line, /My own take/);
+      const b2 = await call('guides.backlinks', { file: cPtr });
+      assert.deepStrictEqual(b2.from.map((x) => x.name), ['C Start Here']);
+      const g = await call('guides.graph', { vault: mv.path });
+      assert.deepStrictEqual([g.nodes.length, g.edges.length], [2, 1]);
+      // a new note: its links (not the ones in code) and tags; never overwritten; no escaping the vault
+      const n = await call('guides.create', { vault: mv.path, name: 'Smart Pointers', text: '---\ntags: [cpp, memory]\n---\n# Smart Pointers\n\nSee [[Pointers]] and [[Nowhere Yet]]. #todo\n\n```cpp\n[[nodiscard]] int f(); // #not-a-tag\n```\n\n- [ ] read about unique_ptr\n- [x] read about raw pointers\n\n> [!tip]\n> - [ ] a task in a callout\n' });
+      made.push(n.path);
+      assert.strictEqual(n.existed, false);
+      assert.strictEqual((await call('guides.create', { vault: mv.path, name: 'Smart Pointers', text: 'X' })).existed, true);
+      assert.match(fs.readFileSync(n.path, 'utf8'), /Nowhere Yet/, 'not overwritten');
+      const b3 = await call('guides.backlinks', { file: n.path });
+      assert.deepStrictEqual(b3.missing, ['Nowhere Yet']);
+      assert.deepStrictEqual(b3.tags.sort(), ['cpp', 'memory', 'todo']);
+      assert.strictEqual(b3.out, 1);
+      assert.deepStrictEqual((await call('guides.backlinks', { file: myPtr })).from.map((x) => x.name).sort(), ['Smart Pointers', 'Start Here']);
+      const tags = await call('guides.tags', { vault: mv.path });
+      assert.deepStrictEqual(tags.find((x) => x.tag === 'todo').notes.map((x) => x.name), ['Smart Pointers']);
+      assert.ok(!tags.some((x) => x.tag === 'not-a-tag'), 'tags inside code don\'t count');
+      for (const bad of ['../escape', 'a/../../b', '.hidden', '']) await assert.rejects(call('guides.create', { vault: mv.path, name: bad }), /can't be a note name/);
+      // tasks: the nth box on the page is the nth in the file, callouts included
+      await call('guides.toggleTask', { file: n.path, index: 0, done: true, expectText: 'read about unique_ptr' });
+      await call('guides.toggleTask', { file: n.path, index: 1, done: false });
+      await call('guides.toggleTask', { file: n.path, index: 2, done: true });
+      const t = fs.readFileSync(n.path, 'utf8');
+      assert.match(t, /- \[x\] read about unique_ptr\n- \[ \] read about raw pointers/);
+      assert.match(t, /> - \[x\] a task in a callout/);
+      await assert.rejects(call('guides.toggleTask', { file: n.path, index: 9, done: true }), /no longer in the note/);
+      await assert.rejects(call('guides.toggleTask', { file: path.join(PROJ, 'CMakeLists.txt'), index: 0, done: true }), /outside your vaults/);
+      // a note from the vault's template; today's note in Daily/
+      fs.mkdirSync(path.join(mv.path, 'Templates'));
+      fs.writeFileSync(path.join(mv.path, 'Templates', 'Note Template.md'), '---\ntags: [draft]\n---\n# {{title}}\n\nStarted {{date}}.\n');
+      made.push(path.join(mv.path, 'Templates'));
+      const fromTpl = await call('guides.create', { vault: mv.path, name: 'Lambdas', folder: 'Phase 2' });
+      made.push(path.dirname(fromTpl.path));
+      assert.match(fs.readFileSync(fromTpl.path, 'utf8'), /^---\ntags: \[draft\]\n---\n# Lambdas\n\nStarted \d{4}-\d\d-\d\d\.\n$/);
+      const d = await call('guides.daily', { vault: mv.path });
+      made.push(path.dirname(d.path));
+      assert.match(path.relative(mv.path, d.path), /^Daily\/\d{4}-\d\d-\d\d\.md$/);
+      assert.match(fs.readFileSync(d.path, 'utf8'), /- \[ \] Read one note/);
+      assert.strictEqual((await call('guides.daily', { vault: mv.path })).existed, true);
+    } finally {
+      for (const p of made) fs.rmSync(p, { recursive: true, force: true });
+    }
+  });
+
+  await test('openbsd: clang, egdb, UBSan in trap mode with the strict malloc, doas pkg_add hints', async () => {
+    const platform = require('../server/platform');
+    const asan = ['-Wall', '-g', '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer'];
+    assert.deepStrictEqual(platform.sanitizerFlags(asan, { platform: 'linux' }), asan, 'Linux: unchanged');
+    assert.deepStrictEqual(platform.sanitizerFlags(asan, { platform: 'openbsd' }), ['-Wall', '-g', '-fno-omit-frame-pointer', '-fsanitize=undefined', '-fsanitize-trap=undefined']);
+    assert.deepStrictEqual(platform.sanitizerFlags(['-O2'], { platform: 'openbsd' }), ['-O2']);
+    assert.throws(() => platform.sanitizerFlags(['-fsanitize=fuzzer,address'], { platform: 'openbsd' }), /libFuzzer isn't available on OpenBSD/);
+    assert.deepStrictEqual(platform.runEnv(asan, { platform: 'openbsd' }), { MALLOC_OPTIONS: 'S' });
+    assert.deepStrictEqual(platform.runEnv(['-O2'], { platform: 'openbsd' }), {});
+    assert.deepStrictEqual(platform.runEnv(asan, { platform: 'linux' }), {});
+    // the whole backend, as if on OpenBSD: compilers, hints, the CMake template
+    const { execFileSync } = require('child_process');
+    const out = JSON.parse(execFileSync(process.execPath, ['-e', `
+      const d = require('./server/distro'), p = require('./server/platform');
+      console.log(JSON.stringify({ cc: p.defaultCompilers(), fam: d.info().family, gdb: d.installHint('gdb'), clangd: d.installHint('clangd'), gpp: d.installHint('g++'), clang: d.installHint('clang') }));
+    `], { cwd: path.join(__dirname, '..'), env: { ...process.env, WORKBENCH_PLATFORM: 'openbsd' }, encoding: 'utf8' }));
+    assert.deepStrictEqual(out.cc, { compiler: 'clang++', cCompiler: 'clang' });
+    assert.strictEqual(out.fam, 'openbsd');
+    assert.match(out.gdb, /doas pkg_add gdb.*egdb/);
+    assert.strictEqual(out.clangd, 'doas pkg_add clang-tools-extra');
+    assert.match(out.gpp, /clang\+\+ \/ clang in Settings/);
+    assert.strictEqual(out.clang, 'part of OpenBSD itself');
+    const cm = fs.readFileSync(path.join(__dirname, '..', 'server', 'project.js'), 'utf8');
+    assert.match(cm, /CMAKE_SYSTEM_NAME STREQUAL "OpenBSD"\)\n\s+# [^\n]*\n\s+# [^\n]*\n\s+add_compile_options\(-fsanitize=undefined -fsanitize-trap=undefined/);
+    // the window: Chromium in app mode with its own profile (inside ~/.config/chromium: unveil)
+    const bin = path.join(HOME, 'fake-browsers');
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(path.join(bin, 'chrome'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const aw = path.join(__dirname, '..', 'scripts', 'app-window.js');
+    const chk = execFileSync(process.execPath, [aw, '--check'], { env: { ...process.env, PATH: `${bin}:/usr/bin:/bin`, CPW_BROWSER: path.join(bin, 'chrome') }, encoding: 'utf8' });
+    assert.match(chk, /^chromium: .*\/chrome\nchrome --app=URL --user-data-dir=\S+ --class=cpp-path-workbench/);
+    const none = require('child_process').spawnSync(process.execPath, [aw, '--check'], { env: { ...process.env, PATH: bin, CPW_BROWSER: '/nowhere/browser' }, encoding: 'utf8' });
+    assert.strictEqual(none.status, 1);
+    assert.match(none.stdout, /no window: CPW_BROWSER is \/nowhere\/browser/);
+    const setup = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'setup-openbsd.sh'), 'utf8');
+    assert.match(setup, /^#!\/bin\/sh\n/, 'plain sh: OpenBSD has no bash out of the box');
+    assert.doesNotMatch(setup, /\[\[|\bfunction\b|\$\{[^}]*\/\/|local /, 'no bashisms');
+    assert.strictEqual(require('child_process').spawnSync('sh', ['-n', path.join(__dirname, '..', 'scripts', 'setup-openbsd.sh')]).status, 0);
+  });
+
   await test('sandbox: C with gcc, its own scratch.c, a runtime problem, Valgrind, and the assembly', async () => {
     const src = '#include <stdio.h>\n#include <stdlib.h>\n\nint main(void) {\n    int *p = malloc(sizeof *p);\n    free(p);\n    printf("%d\\n", *p);\n    return 0;\n}\n';
     const got = waitFor('build.runtime', (d) => d.problems.some((x) => /use-after-free/.test(x.message)), 30000);

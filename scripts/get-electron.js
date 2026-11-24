@@ -9,6 +9,12 @@ const fs = require('fs');
 const path = require('path');
 
 if (process.env.ELECTRON_SKIP_BINARY_DOWNLOAD) process.exit(0);
+// No Electron for OpenBSD or FreeBSD: there the window is a Chromium app
+// window (scripts/app-window.js), so there's nothing to download.
+if (!['linux', 'darwin', 'win32'].includes(process.platform)) {
+  console.log(`No Electron for ${process.platform}: npm start opens the app in a Chromium window instead.`);
+  process.exit(0);
+}
 const dir = path.join(__dirname, '..', 'node_modules', 'electron');
 const install = path.join(dir, 'install.js');
 if (!fs.existsSync(install)) process.exit(0);          // electron not installed (npm install --omit=dev)

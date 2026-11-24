@@ -125,8 +125,8 @@ function compilerFor(ex) {
   const b = config.get().build;
   return ex.lang === 'cpp' ? { cc: b.compiler || 'g++', std: b.std || 'c++20' } : { cc: b.cCompiler || 'gcc', std: b.cStd || 'c17' };
 }
-const SAN = ['-g', '-O0', '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer'];
-const RUN_ENV = { ASAN_OPTIONS: 'detect_leaks=1:abort_on_error=0', UBSAN_OPTIONS: 'print_stacktrace=1:halt_on_error=1' };
+const SAN = require('./platform').sanitizerFlags(['-g', '-O0', '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer']);
+const RUN_ENV = { ASAN_OPTIONS: 'detect_leaks=1:abort_on_error=0', UBSAN_OPTIONS: 'print_stacktrace=1:halt_on_error=1', ...require('./platform').runEnv(SAN) };
 
 // ------------------------------------------------------------------ check
 async function check({ id }) {
@@ -201,7 +201,10 @@ function parseRun(out, steps, code) {
   return [...res.values()].map(({ reached, ...r }) => r);
 }
 function crashReason(out) {
-  const m = out.match(/ERROR: AddressSanitizer: ([\w-]+)/) || out.match(/runtime error: (.*)/) || out.match(/(Segmentation fault|Aborted)/);
+  const m = out.match(/ERROR: AddressSanitizer: ([\w-]+)/) || out.match(/runtime error: (.*)/)
+    || out.match(/in (?:free|malloc|realloc|calloc|recallocarray)\(\): (.*)/)   // OpenBSD's malloc (MALLOC_OPTIONS=S)
+    || out.match(/(Segmentation fault|Aborted|Abort trap|Illegal instruction)/);
+  if (m && m[1] === 'Illegal instruction') return 'undefined behaviour (UBSan stopped it: on OpenBSD it traps instead of printing)';
   return m ? m[1] : 'see the Build panel';
 }
 

@@ -20,6 +20,7 @@ function readOsRelease(file = '/etc/os-release') {
 }
 
 function familyOf(rel) {
+  if (require('./platform').OPENBSD) return 'openbsd';
   const ids = `${rel.ID || ''} ${rel.ID_LIKE || ''}`.toLowerCase();
   if (/\b(debian|ubuntu)\b/.test(ids)) return 'debian';
   if (/\b(fedora|rhel|centos)\b/.test(ids)) return 'fedora';
@@ -61,15 +62,25 @@ const PKG = {
   wslview: { fedora: 'wslu', debian: 'wslu' },
   'libclang-rt': { fedora: 'compiler-rt', debian: 'libclang-rt-dev' },
 };
+// OpenBSD: clang is the system compiler (cc, c++, clang, clang++), and
+// packaged GNU tools get an e in front: egdb, egcc, eg++.
+const OPENBSD_PKG = {
+  'g++': 'g++', gcc: 'gcc', make: null, 'clang++': null, clang: null, cmake: 'cmake', ctest: 'cmake', ninja: 'ninja',
+  gdb: 'gdb', egdb: 'gdb', clangd: 'clang-tools-extra', 'clang-tidy': 'clang-tools-extra', 'clang-format': 'clang-tools-extra',
+  cppcheck: 'cppcheck', valgrind: 'valgrind', git: 'git', rg: 'ripgrep', 'c++filt': 'binutils', 'secret-tool': 'libsecret',
+  gio: 'glib2', man: null, python3: 'python%3', 'dosbox-x': 'dosbox', wslview: null, 'libclang-rt': null, node: 'node', chrome: 'chromium',
+};
 
 function pkgFor(tool) {
+  if (FAMILY === 'openbsd') return tool in OPENBSD_PKG ? OPENBSD_PKG[tool] : tool;
   const p = PKG[tool];
   if (!p) return tool;
   return p[FAMILY] || p.debian;
 }
 
 function installLine(pkgs) {
-  const list = [...new Set(pkgs.flatMap((p) => p.split(' ')))].join(' ');
+  const list = [...new Set(pkgs.filter(Boolean).flatMap((p) => p.split(' ')))].join(' ');
+  if (FAMILY === 'openbsd') return `doas pkg_add ${list}`;
   if (FAMILY === 'debian') return `sudo apt install ${list}`;
   if (FAMILY === 'fedora') return `sudo dnf install ${list}`;
   return `install ${list} with your package manager`;
@@ -77,6 +88,13 @@ function installLine(pkgs) {
 
 // "sudo apt install clangd", for an error message
 function installHint(tool) {
+  if (FAMILY === 'openbsd') {
+    if (tool === 'g++' || tool === 'gcc') return 'OpenBSD\'s compiler is clang: choose clang++ / clang in Settings → Build (or doas pkg_add g++, which installs as eg++)';
+    if (tool === 'gdb' || tool === 'egdb') return 'doas pkg_add gdb (it installs as egdb, which the app uses)';
+    if (tool === 'libclang-rt') return 'OpenBSD has no libFuzzer: fuzz on Linux or WSL';
+    if (tool === 'wslview') return 'not needed on OpenBSD';
+    if (!pkgFor(tool)) return 'part of OpenBSD itself';
+  }
   if (tool === 'dosbox-x' && FAMILY === 'fedora') return 'sudo dnf copr enable rob72/DOSBox-X && sudo dnf install dosbox-x';
   return installLine([pkgFor(tool)]);
 }
@@ -137,7 +155,7 @@ function findFolderWith(marker, { home = os.homedir(), accept = () => true } = {
 }
 
 function info() {
-  return { family: FAMILY, wsl: WSL, name: REL.PRETTY_NAME || REL.NAME || os.type(), id: REL.ID || '', version: REL.VERSION_ID || '' };
+  return { family: FAMILY, wsl: WSL, name: REL.PRETTY_NAME || REL.NAME || `${os.type()} ${os.release()}`, id: REL.ID || os.type().toLowerCase(), version: REL.VERSION_ID || os.release() };
 }
 
 module.exports = { FAMILY, WSL, info, pkgFor, installLine, installHint, windowsHomes, vaultSearchRoots, findFolderWith, familyOf, readOsRelease };

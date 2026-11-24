@@ -70,7 +70,7 @@ function miParse(s) {
 
 class Gdb {
   constructor(exe, cwd) {
-    this.p = spawn('gdb', ['--interpreter=mi2', '-q', '-nx', exe], { cwd, env: { ...process.env, LC_ALL: 'C' } });
+    this.p = spawn(require('./platform').gdb(), ['--interpreter=mi2', '-q', '-nx', exe], { cwd, env: { ...process.env, LC_ALL: 'C' } });
     this.buf = '';
     this.token = 1;
     this.waiting = new Map();
@@ -115,7 +115,7 @@ const hex = (s) => { const m = /0x[0-9a-f]+/i.exec(s || ''); return m ? BigInt(m
 
 // ------------------------------------------------------------------ the trace
 async function trace({ source, lang = 'c', input = '' }) {
-  if (!which('gdb')) throw new Error(`The memory view needs gdb (${hint('gdb')})`);
+  if (!which('gdb') && !which('egdb')) throw new Error(`The memory view needs gdb (${hint('gdb')})`);
   const tc = toolchain(lang === 'cpp' ? 'cpp' : 'c');
   const dir = path.dirname(config.dataPath('memviz', 'x'));
   const name = tc.lang === 'c' ? 'viz.c' : 'viz.cpp';
