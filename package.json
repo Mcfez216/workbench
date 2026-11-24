@@ -7,6 +7,7 @@
   "main": "main.js",
   "scripts": {
     "preinstall": "node scripts/check-node.js",
+    "postinstall": "node scripts/get-electron.js",
     "start": "electron .",
     "prestart": "node scripts/check-node.js && node scripts/build-web.js",
     "web": "node server/index.js --web",

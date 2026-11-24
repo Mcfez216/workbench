@@ -33,6 +33,16 @@ say "The app's packages (Electron is about 100 MB)"
 npm install --no-audit --no-fund
 node scripts/build-web.js
 
+# Electron (what draws the app's window) fetches its program the first time
+# it runs, not during npm install: get it now, while you can see it happen,
+# instead of on the first start from the Start menu.
+say "Electron, the app's window (about 100 MB)"
+if ! node node_modules/electron/install.js || [ ! -x node_modules/electron/dist/electron ]; then
+	echo "Electron didn't download. Check the internet connection (and any proxy), then run this again." >&2
+	exit 1
+fi
+echo "OK: $(cat node_modules/electron/dist/version 2>/dev/null || echo installed)"
+
 say "Done"
 echo "Start it from the Windows Start menu or desktop: C++ Path Workbench."
 echo "Or here: cd \"$DIR\" && npm start   (npm run web: the same app in your browser)"

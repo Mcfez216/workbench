@@ -67,8 +67,8 @@ Fix: in PowerShell run   wsl --update   then   wsl --shutdown   and start the ap
 WSLg needs Windows 11, or Windows 10 22H2 (build 19045 or later) with the current WSL from the Microsoft Store."
 	fi
 	if [ ! -x "$ELECTRON" ]; then
-		echo "Electron (the program that draws the app's window) isn't installed: its download probably failed during setup.
-Fix: run 'Install on Windows' again, or in Ubuntu:   cd $DIR && npm install"
+		echo "Electron (the program that draws the app's window) isn't installed, and downloading it didn't work.
+Fix: check the internet connection, then run 'Install on Windows' again, or in Ubuntu:   cd $DIR && node node_modules/electron/install.js"
 	elif command -v ldd >/dev/null 2>&1; then
 		local missing
 		missing="$(ldd "$ELECTRON" 2>/dev/null | awk '/not found/ {print $1}' | tr '\n' ' ')"
@@ -81,6 +81,12 @@ Fix: in Ubuntu run   bash $DIR/scripts/setup-ubuntu.sh   (or run 'Install on Win
 if [ "$MODE" = window ] && [ -z "${DISPLAY:-}" ] && [ -e /mnt/wslg/.X11-unix/X0 ]; then export DISPLAY=:0; fi
 if [ "$MODE" = window ] && [ -z "${WAYLAND_DISPLAY:-}" ] && [ -e /mnt/wslg/runtime-dir/wayland-0 ]; then
 	export WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/mnt/wslg/runtime-dir}"
+fi
+# Electron fetches its program on first use: if setup didn't (an older
+# install), fetch it now rather than calling it missing
+if [ "$MODE" = window ] && [ $CHECK = 0 ] && [ ! -x "$ELECTRON" ] && [ -f "$DIR/node_modules/electron/install.js" ]; then
+	echo "fetching Electron..." >>"$LOG"
+	(cd "$DIR" && node node_modules/electron/install.js) >>"$LOG" 2>&1 || true
 fi
 problems=""
 [ "$MODE" = window ] && problems="$(window_problems)"

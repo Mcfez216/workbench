@@ -636,7 +636,7 @@ async function test(name, fn) {
     const r0 = spawnSync('bash', [script, '--check'], { env, encoding: 'utf8' });
     assert.strictEqual(r0.stdout.split('\n')[0], 'window', 'never the browser by surprise');
     if (!fs.existsSync('/mnt/wslg')) { assert.strictEqual(r0.status, 1); assert.match(r0.stdout, /WSLg isn't running[\s\S]*wsl --update/); }
-    if (!electron) assert.match(r0.stdout, /Electron .* isn't installed[\s\S]*npm install/);
+    if (!electron) assert.match(r0.stdout, /Electron .* isn't installed[\s\S]*electron\/install\.js/);
     assert.strictEqual(check('browser'), 'browser');
     // a copy without its packages says to run the installer again
     const app = fs.mkdtempSync(path.join(HOME, 'app-'));
