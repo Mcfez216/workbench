@@ -632,9 +632,11 @@ async function test(name, fn) {
     delete env.DISPLAY; delete env.WAYLAND_DISPLAY;
     const check = (...a) => execFileSync('bash', [script, ...a, '--check'], { env, encoding: 'utf8' }).trim();
     const electron = fs.existsSync(path.join(__dirname, '..', 'node_modules', 'electron', 'dist', 'electron'));
-    if (!fs.existsSync('/mnt/wslg')) assert.strictEqual(check(), 'browser', 'no WSLg: the browser');
-    assert.strictEqual(execFileSync('bash', [script, '--check'], { env: { ...env, WAYLAND_DISPLAY: 'wayland-0' }, encoding: 'utf8' }).trim(), electron ? 'window' : 'browser');
-    assert.strictEqual(check('window'), 'window');
+    // always the window; the browser only when asked for. What blocks the window is said, with the fix
+    const r0 = spawnSync('bash', [script, '--check'], { env, encoding: 'utf8' });
+    assert.strictEqual(r0.stdout.split('\n')[0], 'window', 'never the browser by surprise');
+    if (!fs.existsSync('/mnt/wslg')) { assert.strictEqual(r0.status, 1); assert.match(r0.stdout, /WSLg isn't running[\s\S]*wsl --update/); }
+    if (!electron) assert.match(r0.stdout, /Electron .* isn't installed[\s\S]*electron\/install\.js/);
     assert.strictEqual(check('browser'), 'browser');
     // a copy without its packages says to run the installer again
     const app = fs.mkdtempSync(path.join(HOME, 'app-'));
@@ -650,6 +652,10 @@ async function test(name, fn) {
       assert.ok(!/[^\r]\n/.test(text), `${f}: CRLF line endings`);
       assert.ok(!/[^\x00-\x7f]/.test(text), `${f}: ASCII only`);
     }
+    // the wsl.exe helper must stay a plain function: with param() PowerShell takes wsl's -d / -e / -v as its own -Debug, -ErrorAction, -Verbose
+    const ps = fs.readFileSync(path.join(__dirname, '..', 'windows', 'Install.ps1'), 'latin1');
+    const wslFn = ps.slice(ps.indexOf('function Wsl {'), ps.indexOf('\n}', ps.indexOf('function Wsl {')));
+    assert.ok(wslFn && !/param\s*\(/.test(wslFn) && /& wsl\.exe @args/.test(wslFn), 'Wsl passes its arguments straight through');
   });
 
   await test('exercises: every starter fails step 1, every solution passes them all; the CTF flags are reachable', async () => {

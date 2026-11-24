@@ -9,6 +9,20 @@ const IRC = require('irc-framework');
 const config = require('./config');
 const secrets = require('./secrets');
 
+// What went wrong with a connection, in words. Node tries each of a server's
+// addresses (IPv6 and IPv4) and, when all fail, reports an AggregateError
+// whose own message is empty: the reasons are in its .errors.
+function describeError(err) {
+  if (!err) return '';
+  const one = (e) => [e.code, e.address && `${e.address}${e.port ? ':' + e.port : ''}`].filter(Boolean).join(' ') || e.message || String(e);
+  if (Array.isArray(err.errors) && err.errors.length) {
+    const reasons = err.errors.map(one).join('; ');
+    const timedOut = err.errors.every((e) => e.code === 'ETIMEDOUT');
+    return `couldn't reach the server (${reasons})${timedOut ? '. Every address timed out: is the network up, or is port 6697 blocked (some networks only allow web traffic)?' : ''}`;
+  }
+  return err.message || err.code || String(err);
+}
+
 let api;
 let client = null;
 let status = { state: 'disconnected', nick: '', server: '', error: '' };
@@ -132,7 +146,8 @@ async function connect() {
   client.on('nick in use', (e) => add(SERVER, 'server', { kind: 'error', text: `Nick ${e.nick} is in use. Try /nick ${e.nick}_` }));
   client.on('irc error', (e) => add(SERVER, 'server', { kind: 'error', text: `${e.error}: ${e.reason || ''}` }));
   client.on('reconnecting', (e) => { setStatus({ state: 'reconnecting' }); add(SERVER, 'server', { kind: 'info', text: `Reconnecting (attempt ${e.attempt})...` }); });
-  client.on('socket close', (err) => { if (status.state !== 'reconnecting') setStatus({ state: 'disconnected' }); if (err) add(SERVER, 'server', { kind: 'error', text: `Connection closed: ${err.message || err}` }); });
+  client.on('socket error', (err) => { setStatus({ error: describeError(err) }); add(SERVER, 'server', { kind: 'error', text: `Connection problem: ${describeError(err)}` }); });
+  client.on('socket close', (err) => { if (status.state !== 'reconnecting') setStatus({ state: 'disconnected' }); if (err) add(SERVER, 'server', { kind: 'error', text: `Connection closed: ${describeError(err)}` }); });
   client.on('close', () => setStatus({ state: 'disconnected' }));
   client.connect(opts);
   return status;
@@ -208,4 +223,4 @@ function init(a) {
   setTimeout(() => { if (config.get().irc.autoConnect && config.get().irc.nick) connect().catch((e) => add(SERVER, 'server', { kind: 'error', text: e.message })); }, 500);
 }
 
-module.exports = { init, splitPem };
+module.exports = { init, splitPem, describeError };

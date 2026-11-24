@@ -7,8 +7,8 @@
 #
 #   -Distro <name>   which WSL distro to use (default: your Ubuntu, or a new
 #                    Ubuntu-24.04 if you have none)
-#   -Mode <m>        how the shortcut opens it: auto (the window if WSLg is
-#                    there, else your browser), window or browser
+#   -Mode <m>        window (the default: the app in its own window) or
+#                    browser (only if you want it in your web browser instead)
 #   -NoDesktop       no desktop shortcut (the Start menu one is always made)
 #   -Uninstall       removes the shortcuts and the launcher (the app and its
 #                    tools stay in WSL; it says how to remove those)
@@ -31,7 +31,7 @@
 [CmdletBinding()]
 param(
     [string]$Distro = '',
-    [ValidateSet('auto', 'window', 'browser')][string]$Mode = 'auto',
+    [ValidateSet('auto', 'window', 'browser')][string]$Mode = 'window',
     [switch]$NoDesktop,
     [switch]$Uninstall,
     [switch]$Resumed
@@ -58,12 +58,14 @@ function Ask([string]$question) {
 }
 
 # Run wsl.exe and hand back its output as clean lines (no UTF-16 NULs)
+# (A plain function, on purpose: with a param() block PowerShell would read
+# wsl's own -d, -e, -v as its common parameters, -Debug, -ErrorAction,
+# -Verbose, instead of passing them on. $args passes everything through.)
 function Wsl {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$WslArgs)
     # Windows PowerShell turns a native program's stderr into errors, which
     # 'Stop' would make fatal: wsl.exe writes warnings there
     $ErrorActionPreference = 'Continue'
-    $out = & wsl.exe @WslArgs 2>&1
+    $out = & wsl.exe @args 2>&1
     $script:WslExit = $LASTEXITCODE
     return @($out | ForEach-Object { ([string]$_).Replace("`0", '').Trim() } | Where-Object { $_ -ne '' })
 }
@@ -131,7 +133,7 @@ if ($script:WslExit -eq 0) {
     Warn 'This is the older built-in WSL, without WSLg. Trying to update it to the current one...'
     $null = Wsl --update
     $null = Wsl --version
-    if ($script:WslExit -ne 0) { Warn "Couldn't update WSL. The app will open in your browser instead of its own window." }
+    if ($script:WslExit -ne 0) { Warn "Couldn't update WSL. The app's window needs WSLg: if it doesn't open, run 'wsl --update' in PowerShell (it may need the Microsoft Store version of WSL)." }
 }
 
 # ------------------------------------------------------------------ 2. Ubuntu
@@ -198,7 +200,7 @@ Copy-Item -Force (Join-Path $PSScriptRoot 'Launch.vbs') $Launcher
 Copy-Item -Force (Join-Path $PSScriptRoot 'icon.ico') $Launcher
 Copy-Item -Force $PSCommandPath (Join-Path $Launcher 'Install.ps1')
 @(
-    '; Written by Install.ps1. Mode: auto (window with WSLg, else browser), window or browser.',
+    '; Written by Install.ps1. Mode: window (its own window) or browser (your web browser, only if you want that).',
     "Distro=$Distro",
     "AppDir=$appDir",
     "Mode=$Mode"
@@ -219,7 +221,9 @@ function MakeLink([string]$path, [string]$target, [string]$arguments, [string]$d
 }
 New-Item -ItemType Directory -Force -Path $StartMenu | Out-Null
 MakeLink (Join-Path $StartMenu "$AppName.lnk") $wscript "`"$vbs`"" 'C and C++: editor, build, run, debug, tests, sandbox, guides'
-MakeLink (Join-Path $StartMenu "$AppName (in your browser).lnk") $wscript "`"$vbs`" browser" 'The same app in your web browser'
+# the app opens in its own window; a browser shortcut only if you asked for one (-Mode browser)
+$browserLink = Join-Path $StartMenu "$AppName (in your browser).lnk"
+if (Test-Path $browserLink) { Remove-Item -Force $browserLink }
 MakeLink (Join-Path $StartMenu "Uninstall $AppName shortcuts.lnk") (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $Launcher 'Install.ps1')`" -Uninstall" 'Removes the shortcuts (the app stays in WSL)'
 Write-Host "Start menu: $StartMenu"
 if (-not $NoDesktop) {

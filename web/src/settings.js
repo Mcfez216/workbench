@@ -77,6 +77,7 @@ async function openSettings() {
         smtpHost: text(c.mail.smtpHost), smtpPort: text(c.mail.smtpPort, { type: 'number' }),
         keyring: text(c.mail.keyringService), fetch: text(c.mail.fetchCount, { type: 'number' }),
         musicUrl: text(c.music.url),
+        musicWhere: choice([['auto', 'Its own Windows window (under WSL)'], ['app', 'Inside the app']], c.music.where || 'auto'),
       };
       f.fontSize = choice(sizes(), c.fontSize);
       const sizeHost = h('div', {}, f.fontSize);
@@ -118,7 +119,7 @@ async function openSettings() {
           certFile: f.ircCert.value.trim(), channels: words(f.ircChannels), autoConnect: f.ircAuto.checked },
         mail: { ...latest.mail, name: f.mailName.value.trim(), address: f.mailAddr.value.trim(), imapHost: f.imapHost.value.trim(), imapPort: +f.imapPort.value || 993,
           smtpHost: f.smtpHost.value.trim(), smtpPort: +f.smtpPort.value || 465, keyringService: f.keyring.value.trim() || 'neomutt', fetchCount: +f.fetch.value || 200 },
-        music: { url: f.musicUrl.value.trim() || 'https://music.youtube.com/' },
+        music: { ...latest.music, url: f.musicUrl.value.trim() || 'https://music.youtube.com/', where: f.musicWhere.value },
       });
       const save = async () => {
         try {
@@ -212,6 +213,7 @@ async function openSettings() {
         h('div', { class: 'full row' }, h('button', { class: 'btn', type: 'button', onclick: () => runCommand('mail.password') }, 'Set Gmail App Password...')),
         h('h2', {}, 'Music'),
         ...field('Start page', f.musicUrl, 'A music.youtube.com or www.youtube.com address'),
+        ...field('Where music plays', f.musicWhere, 'Under WSL, sound from inside the app goes through WSLg and can crackle; in its own window (Microsoft Edge with no tabs or address bar) it plays through Windows directly, and your media keys work. Elsewhere it always plays inside the app.'),
         h('h2', {}, 'Files'),
         h('div', { class: 'full muted' }, `Settings: ${info.configFile}`), h('div', { class: 'full muted' }, `Data (sandbox, judge cases, flashcard progress): ${info.dataDir}`),
         h('div', { class: 'full row', style: { marginTop: '1em' } }, h('button', { class: 'btn primary', type: 'button', onclick: save }, 'Save settings'),

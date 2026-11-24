@@ -37,6 +37,12 @@ function openOutside(url) {
 // the GPU back on.
 if (distro.WSL && process.env.WORKBENCH_GPU !== '1') app.disableHardwareAcceleration();
 
+// Sound under WSLg goes through PulseAudio over WSLg's remote-desktop audio
+// channel, which crackles and clips with the small buffers Chromium asks
+// for. A 60 ms buffer is the usual cure (only for music played inside the
+// app: by default WSL plays Music in a Windows window instead).
+if (distro.WSL && !process.env.PULSE_LATENCY_MSEC) process.env.PULSE_LATENCY_MSEC = '60';
+
 // Scrolling under WSLg: the animated "smooth" scroll asks for a new frame
 // every few milliseconds, and each frame crosses WSLg's remote-desktop link,
 // so wheel scrolling stutters or seems stuck. Jump straight to the new

@@ -56,7 +56,8 @@ md.inline.ruler.before('link', 'wikilink', (state, silent) => {
   const inner = s.slice(pos + bang + 2, end);
   if (!inner || inner.includes('\n')) return false;
   if (!silent) {
-    const [target, alias] = inner.split('|');
+    // Obsidian writes [[note\|label]] inside tables, where a bare | would end the cell
+    const [target, alias] = inner.replace(/\\\|/g, '|').split('|');
     const [note, heading] = target.split('#');
     const t = state.push('wikilink', '', 0);
     t.meta = { note: note.trim(), heading: (heading || '').trim(), text: (alias || (heading && !note ? heading : target)).trim() };

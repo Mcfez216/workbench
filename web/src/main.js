@@ -29,7 +29,7 @@ import { initGuides, openGuide, loadNotes } from './guides.js';
 import { initRevise } from './revise.js';
 import { initIrc } from './irc.js';
 import { initMail } from './mail.js';
-import { initMusic, setMusicUrl } from './music.js';
+import { initMusic, setMusicUrl, setMusicWhere } from './music.js';
 import { initSettings, onSettingsSaved } from './settings.js';
 import { initWelcome } from './welcome.js';
 
@@ -84,7 +84,7 @@ const MENUS = [
     { label: 'DOS retro track', submenu: [{ cmd: 'dos.build' }, { cmd: 'dos.run' }, { cmd: 'guides.open', args: ['0.4 DOSBox-X and Open Watcom - The DOS Retro Track'], label: 'Note 0.4: DOSBox-X and Open Watcom' }] },
     { sep: true },
     { cmd: 'mail.open' }, { cmd: 'mail.compose' }, { cmd: 'irc.open' }, { sep: true },
-    { cmd: 'music.open' },
+    { cmd: 'music.open' }, { cmd: 'music.inside' },
   ] },
   { label: 'Guides', hot: 'u', items: [
     { cmd: 'guides.show', label: 'Your vaults' }, { cmd: 'guides.search' }, { cmd: 'vault.add' }, { cmd: 'revise.open' }, { sep: true },
@@ -275,7 +275,8 @@ async function boot() {
   on('rpc.open', () => { if (lost) { lost = false; status.set('conn', ''); toast('Reconnected', 'ok'); } });
 
   cfg = await call('config.get');
-  setHome((await call('app.info')).home);
+  const appInfo = await call('app.info');
+  setHome(appInfo.home);
   setConfig(cfg);
   setLanguageConfig(cfg);
   applyTheme(cfg.theme, cfg.fontSize, cfg.look || {});
@@ -296,6 +297,7 @@ async function boot() {
   setTheme(cfg.theme);
   setKeymap(cfg.keymap);
   setMusicUrl(cfg.music.url);
+  setMusicWhere(cfg.music.where, appInfo.distro && appInfo.distro.wsl);
   if (cfg.workspace) setRoot(cfg.workspace);
   setFolders(cfg.folders || []);
 
@@ -313,7 +315,7 @@ async function boot() {
   onSettingsSaved((saved) => {
     const vaultChanged = vaultKey(saved) !== vaultKey(cfg);
     cfg = saved; setConfig(cfg); setLanguageConfig(cfg); showLanguage(); applyComfort(cfg);
-    setTheme(cfg.theme, cfg.fontSize); setKeymap(cfg.keymap); setMusicUrl(cfg.music.url);
+    setTheme(cfg.theme, cfg.fontSize); setKeymap(cfg.keymap); setMusicUrl(cfg.music.url); setMusicWhere(cfg.music.where, appInfo.distro && appInfo.distro.wsl);
     if (cfg.workspace) setRoot(cfg.workspace);
     setFolders(cfg.folders || []);
     if (vaultChanged) loadNotes();
