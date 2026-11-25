@@ -27,8 +27,45 @@ const START_NOTE = 'CPP Start Here.md';
 // The vault: the folder with "CPP Start Here.md" in it, wherever it is under
 // your home folder (or, in WSL, your Windows Documents / OneDrive / Desktop).
 // A bounded search, run once until it's in the config.
+// The app's own copy (vaults/ in its folder) doesn't count: updating the
+// app replaces it, so your notes live in a copy of their own.
+const APP_DIR = path.resolve(__dirname, '..');
 function findVault() {
-  return require('./distro').findFolderWith(START_NOTE);
+  return require('./distro').findFolderWith(START_NOTE, { accept: (d) => !path.resolve(d).startsWith(APP_DIR + path.sep) });
+}
+
+// The course vaults that come with the app (vaults/CPP-Path, vaults/C-Path).
+// On the first start, with no vault of your own, they're copied to ~/Notes
+// and shown in Guides. Later, "Get new course notes" copies notes added in
+// an update. Either way a file that's already there is never replaced: your
+// edits, ticks and daily notes stay yours.
+const BUNDLED = path.join(APP_DIR, 'vaults');
+function bundledVaults() {
+  try {
+    return fs.readdirSync(BUNDLED, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => ({ name: e.name, from: path.join(BUNDLED, e.name) }));
+  } catch (e) { return []; }
+}
+function copyMissing(from, to) {
+  let copied = 0, kept = 0;
+  fs.mkdirSync(to, { recursive: true });
+  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+    const a = path.join(from, e.name), b = path.join(to, e.name);
+    if (e.isDirectory()) { const r = copyMissing(a, b); copied += r.copied; kept += r.kept; }
+    else if (e.isFile()) {
+      if (fs.existsSync(b)) kept++;
+      else { fs.copyFileSync(a, b); copied++; }
+    }
+  }
+  return { copied, kept };
+}
+// Copy the bundled vaults out (to ~/Notes/<name>, or where you have them).
+// Returns [{ name, path, copied, kept }].
+function installBundledVaults(target = path.join(HOME, 'Notes')) {
+  const have = new Map((current ? current.vaults : []).map((v) => [v.name, expand(v.path)]));
+  return bundledVaults().map((b) => {
+    const to = have.get(b.name) || path.join(target, b.name);
+    return { name: b.name, path: to, ...copyMissing(b.from, to) };
+  });
 }
 
 function defaults() {
@@ -105,6 +142,15 @@ function load() {
   if (!current.vaults.length) {
     const found = findVault();
     if (found) current.vaults = [{ path: found, name: vaultName(found) }];
+    // (only on a true first start: removing every vault later sticks)
+    else if (!('vaults' in saved) && !saved.vault && bundledVaults().length && !process.env.CPW_NO_BUNDLED_VAULTS) {
+      // the first start: the course vaults that come with the app, copied out
+      try {
+        current.vaults = installBundledVaults().map((v) => ({ path: v.path, name: v.name }));
+        fs.mkdirSync(CONFIG_DIR, { recursive: true });
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify({ ...saved, vaults: current.vaults }, null, 2));
+      } catch (e) { current.vaults = []; }
+    }
   }
   current.vault = current.vaults[0] ? current.vaults[0].path : null;
   return current;
@@ -158,4 +204,4 @@ function expand(p) {
   return p;
 }
 
-module.exports = { load, get, save, dataPath, expand, APP_PARENT, findVault, HOME, CONFIG_FILE, DATA_DIR };
+module.exports = { load, get, save, dataPath, expand, APP_PARENT, findVault, bundledVaults, installBundledVaults, copyMissing, HOME, CONFIG_FILE, DATA_DIR };

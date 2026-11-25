@@ -91,7 +91,7 @@ const MENUS = [
     { cmd: 'music.open' }, { cmd: 'music.inside' },
   ] },
   { label: 'Guides', hot: 'u', items: [
-    { cmd: 'guides.show', label: 'Your vaults' }, { cmd: 'guides.search' }, { cmd: 'vault.add' }, { cmd: 'revise.open' }, { sep: true },
+    { cmd: 'guides.show', label: 'Your vaults' }, { cmd: 'guides.search' }, { cmd: 'vault.add' }, { cmd: 'vaults.updateCourse' }, { cmd: 'revise.open' }, { sep: true },
     { cmd: 'notes.new' }, { cmd: 'notes.daily' }, { cmd: 'notes.graph' }, { cmd: 'notes.tags' }, { cmd: 'notes.backlinks' }, { cmd: 'notes.random' }, { sep: true },
     { cmd: 'guides.open', args: ['CPP Start Here'], label: 'CPP Start Here' },
     { cmd: 'guides.open', args: ['Projects/Start Here'], label: 'Projects: Start Here' },

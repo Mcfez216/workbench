@@ -56,6 +56,23 @@ the real palette. **Options → Retro font** swaps the VGA pixel font (sharp
 only at 16 or 32 px) for a smooth monospace font at any size, keeping the
 retro look.
 
+## The course vaults
+
+Two Obsidian vaults come with the app, in `vaults/`: **CPP-Path** (C++) and
+**C-Path** (C), a phase-by-phase course each, with runnable examples, check
+yourself questions (they become flashcards), cheat sheets, phase gates and a
+light Star Wars theme. Open either folder in Obsidian, or just start the app:
+
+- On the first start, if you have no vault of your own, the app copies both
+  to `~/Notes/CPP-Path` and `~/Notes/C-Path` and shows them in Guides. You
+  work in that copy (edit notes, tick boxes, daily notes); the app's own
+  `vaults/` is never touched, so updating the app can't overwrite your notes.
+- **Guides → Get new course notes** copies in notes added by an update.
+  A note you already have is never replaced, edited or not; delete one to get
+  the original back.
+- Already have a vault (your old CPP-Path, say)? The app finds and uses that;
+  *Get new course notes* adds the course vaults beside it.
+
 ## Learning with it
 
 Built for learning C and C++ for development and security, and for brains

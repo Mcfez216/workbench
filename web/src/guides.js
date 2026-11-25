@@ -269,6 +269,17 @@ export function initGuides() {
       buttons: [{ label: 'Cancel', value: false }, { label: 'Add', value: true, primary: true }] });
     if (ok && path.value.trim()) return addVault(path.value, name.value);
   });
+  command('vaults.updateCourse', 'Get new course notes', [], async () => {
+    let got;
+    try { got = await call('vaults.updateCourse'); } catch (err) { toast(err.message, 'error'); return; }
+    if (!got.length) { toast('This copy of the app has no course vaults in it', 'error'); return; }
+    const c = await call('config.get');
+    window.dispatchEvent(new CustomEvent('cpw-config', { detail: c }));
+    await loadNotes();
+    sidebar.show('guides');
+    const n = got.reduce((a, g) => a + g.copied, 0);
+    toast(n ? `${n} new note${n === 1 ? '' : 's'}: ${got.filter((g) => g.copied).map((g) => `${g.name} +${g.copied}`).join(', ')}. Notes you already had were left alone.` : 'You already have every course note. Nothing was changed.', 'ok', 7000);
+  });
   command('guides.beside', 'Open guide beside the editor...', [], async (name) => {
     if (!name) { sidebar.show('guides'); return; }
     return openGuide(name, undefined, { side: tabs.other() });
