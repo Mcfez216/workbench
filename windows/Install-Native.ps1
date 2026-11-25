@@ -281,27 +281,31 @@ try {
 
 # ------------------------------------------------------------------ the shortcuts
 Say 'Start menu and desktop'
-Copy-Item -Force (Join-Path $PSScriptRoot 'Launch-Native.vbs') $Root
 Copy-Item -Force (Join-Path $PSScriptRoot 'icon.ico') $Root
 Copy-Item -Force $PSCommandPath (Join-Path $Root 'Install-Native.ps1')
 $shell = New-Object -ComObject WScript.Shell
-$wscript = Join-Path $env:WINDIR 'System32\wscript.exe'
-$vbs = Join-Path $Root 'Launch-Native.vbs'
-function MakeLink([string]$path, [string]$target, [string]$arguments, [string]$description) {
+# The shortcuts start the app's own program (Electron) directly: no script
+# in between, since many work laptops block Windows Script Host (.vbs) by
+# group policy. The app finds its tools and certificates by itself.
+$electron = Join-Path $App 'node_modules\electron\dist\electron.exe'
+$appArg = "`"$App`""
+$oldVbs = Join-Path $Root 'Launch-Native.vbs'
+if (Test-Path $oldVbs) { Remove-Item -Force $oldVbs }
+function MakeLink([string]$path, [string]$target, [string]$arguments, [string]$description, [string]$dir = $App) {
     $l = $shell.CreateShortcut($path)
     $l.TargetPath = $target
     $l.Arguments = $arguments
-    $l.WorkingDirectory = $Root
+    $l.WorkingDirectory = $dir
     $l.IconLocation = "$(Join-Path $Root 'icon.ico'),0"
     $l.Description = $description
     $l.Save()
 }
 New-Item -ItemType Directory -Force -Path $StartMenu | Out-Null
-MakeLink (Join-Path $StartMenu "$AppName.lnk") $wscript "`"$vbs`"" 'C and C++: editor, build, run, debug, tests, sandbox, guides'
-MakeLink (Join-Path $StartMenu "Uninstall $AppName.lnk") (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $Root 'Install-Native.ps1')`" -Uninstall" 'Removes the Windows version (your notes and code stay)'
+MakeLink (Join-Path $StartMenu "$AppName.lnk") $electron $appArg 'C and C++: editor, build, run, debug, tests, sandbox, guides'
+MakeLink (Join-Path $StartMenu "Uninstall $AppName.lnk") (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $Root 'Install-Native.ps1')`" -Uninstall" 'Removes the Windows version (your notes and code stay)' $Root
 Write-Host "Start menu: $StartMenu"
 if (-not $NoDesktop) {
-    MakeLink $DesktopLink $wscript "`"$vbs`"" 'C and C++: editor, build, run, debug, tests, sandbox, guides'
+    MakeLink $DesktopLink $electron $appArg 'C and C++: editor, build, run, debug, tests, sandbox, guides'
     Write-Host "Desktop:    $DesktopLink"
 }
 
@@ -309,4 +313,4 @@ Write-Host ''
 Write-Host "Done. Start $AppName (Windows) from the Start menu or your desktop." -ForegroundColor Cyan
 Write-Host 'Your notes vault can stay in Documents or OneDrive: add it in Guides -> Add a vault.'
 Write-Host "To update later: download the new version and run 'Install on Windows (no WSL).cmd' again."
-if (Ask 'Start it now?') { Start-Process -FilePath $wscript -ArgumentList "`"$vbs`"" }
+if (Ask 'Start it now?') { Start-Process -FilePath $electron -ArgumentList $appArg -WorkingDirectory $App }

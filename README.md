@@ -197,7 +197,9 @@ its project publishes:
 | Node.js | the setup and the app's helpers |
 
 then the app and its Electron window, and puts **C++ Path Workbench
-(Windows)** in the Start menu. Downloads go through the proxy with your
+(Windows)** in the Start menu. The shortcut starts `electron.exe` directly,
+with no script in between, so it works where group policy blocks Windows
+Script Host. Downloads go through the proxy with your
 Windows sign-in; if one is blocked, the installer says where to download it
 by hand and where to put it. *Uninstall C++ Path Workbench* removes it all
 (your settings, notes and code stay).

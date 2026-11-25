@@ -778,7 +778,7 @@ async function test(name, fn) {
     assert.strictEqual(t.code, 3);
     // the installer: plain ASCII with Windows line endings, pinned https downloads, every one checked
     const ps = fs.readFileSync(path.join(__dirname, '..', 'windows', 'Install-Native.ps1'), 'utf8');
-    for (const f of ['windows/Install-Native.ps1', 'windows/Launch-Native.vbs', 'Install on Windows (no WSL).cmd']) {
+    for (const f of ['windows/Install-Native.ps1', 'Install on Windows (no WSL).cmd']) {
       const txt = fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
       assert.ok(/^[\x00-\x7f]*$/.test(txt), `${f}: ASCII only (Windows PowerShell 5.1 reads files without a BOM as ANSI)`);
       assert.ok(!/[^\r]\n/.test(txt), `${f}: CRLF line endings`);

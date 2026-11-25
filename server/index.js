@@ -16,6 +16,17 @@
 // Windows: the portable toolchain first on PATH, before anything looks for a compiler
 const platform = require('./platform');
 platform.setupPath();
+// ...and the certificates Windows trusts, for the app's own connections (mail,
+// IRC) behind a proxy that inspects HTTPS. No launcher script to set
+// NODE_EXTRA_CA_CERTS: work laptops often block those.
+if (platform.WIN) {
+  try {
+    const tls = require('tls');
+    if (tls.getCACertificates && tls.setDefaultCACertificates) {
+      tls.setDefaultCACertificates([...new Set([...tls.getCACertificates('default'), ...tls.getCACertificates('system')])]);
+    }
+  } catch (e) { /* the bundled ones, then */ }
+}
 
 const http = require('http');
 const net = require('net');
