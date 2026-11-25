@@ -4,28 +4,28 @@ tags: [cpp, cheatsheet, security]
 # Cheat Sheet - Sanitizers and Security
 
 > [!abstract] Why this matters
-> The security words you'll meet, what they mean, and which tool shows each one. Every row is a flashcard.
+> These are the security words you'll meet, what they mean, and which tool shows each one. Every row is also a flashcard.
 
-## Bug classes
+## Kinds of bug
 
-| Bug | What it is | Shows up with |
+| Bug | What it is | Which tool shows it |
 |---|---|---|
-| Buffer overflow | writing past the end of a buffer | ASan (stack- or heap-buffer-overflow) |
-| Use after free | using memory after it was freed | ASan heap-use-after-free |
-| Double free | freeing the same memory twice | ASan double-free |
-| Integer overflow | arithmetic past a type's range | UBSan (signed); careful code (unsigned) |
-| Format string | user text used as a printf format | -Wformat-security, the reference |
-| Uninitialised read | using memory nobody set | Valgrind; MSan with clang |
-| Data race | two threads, same memory, one writing, no lock | ThreadSanitizer (-fsanitize=thread) |
+| Buffer overflow | Writing past the end of an array. | AddressSanitizer: stack- or heap-buffer-overflow |
+| Use after free | Using memory after it was freed. | AddressSanitizer: heap-use-after-free |
+| Double free | Freeing the same memory twice. | AddressSanitizer: double-free |
+| Integer overflow | Maths that goes past a type's biggest value. | UBSan for signed numbers. For unsigned ones, careful code. |
+| Format string | Letting the user's text be printf's format. | The compiler warning -Wformat-security |
+| Uninitialised read | Using memory that was never given a value. | Valgrind, or MSan with clang |
+| Data race | Two threads use the same memory at once, one is writing, and there's no lock. | ThreadSanitizer: -fsanitize=thread |
 
-## Mitigations
+## Protections
 
-| Mitigation | Stops | Flag |
+| Protection | What it stops | How to turn it on |
 |---|---|---|
-| Stack canary | returning after a stack overflow | -fstack-protector-strong |
-| NX | running injected data as code | on by default |
-| PIE + ASLR | guessing where code lives | -fPIE -pie |
-| Full RELRO | overwriting the library call table | -Wl,-z,relro,-z,now |
-| FORTIFY_SOURCE | overflowing a buffer of known size in memcpy, strcpy... | -D_FORTIFY_SOURCE=3 -O2 |
+| Stack canary | Returning from a function after a stack overflow | -fstack-protector-strong |
+| NX | Running data as if it were code | On by default |
+| PIE and ASLR | Guessing where the code is in memory | -fPIE -pie |
+| Full RELRO | Changing the table the program uses to find library functions | -Wl,-z,relro,-z,now |
+| FORTIFY_SOURCE | Overflowing an array of known size in memcpy, strcpy and similar | -D_FORTIFY_SOURCE=3 -O2 |
 
-In the workbench: Security → Hardening shows which of these a program has.
+In the workbench, Security → Hardening shows which of these a program has.

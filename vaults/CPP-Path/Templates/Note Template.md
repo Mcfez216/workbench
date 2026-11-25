@@ -3,14 +3,16 @@ phase:
 tags: []
 time: 10 min
 ---
-# N.NN Title
+# {{title}}
 
 > [!abstract] Why this matters
-> One or two sentences: what this lets you do.
+> Two or three short sentences. What does this let you do?
 
 ## The idea
 
-## In code
+One idea per section. Short sentences. Explain each new word the first time you use it.
+
+## An example
 
 ```cpp
 #include <iostream>
@@ -22,12 +24,15 @@ int main() {
 
 ## Try it
 
+1. A first step.
+2. What you should see.
+
 > [!sith] The dark side
-> The trap.
+> One common mistake. Say what goes wrong, and how to avoid it.
 
 ## Check yourself
 
 > [!question]- A question?
-> The answer.
+> The answer, as a full sentence that makes sense on its own.
 
 Next: [[...]]

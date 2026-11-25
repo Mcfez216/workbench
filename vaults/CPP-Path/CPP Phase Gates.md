@@ -4,17 +4,17 @@ tags: [cpp, hub, gates]
 # CPP Phase Gates
 
 > [!abstract] Why this matters
-> A gate is a quick, honest check before you move on: can you explain these things without looking? If yes, take the rank. If not, the linked note is where the answer lives. No marks, no timer.
+> A gate is a short, honest check before you move on. Can you answer these without looking? If yes, take the rank. If not, the linked note has the answer. There are no marks and no timer.
 
-Answer each one out loud, or in a sentence on paper, then open the fold to compare.
+Answer each question out loud, or write one sentence. Then click it to compare.
 
 ## Gate 0
 
 > [!question]- What do Alt+F9, F9, Ctrl+F9 and F7 do in the workbench?
-> Alt+F9 configures the CMake project, F9 builds it, Ctrl+F9 builds and runs the program you're in, F7 runs the tests (or checks the exercise you're in). See [[0.2 The Workbench Tour]].
+> Alt+F9 sets up the CMake project. F9 builds it. Ctrl+F9 builds and runs the program you're in. F7 runs the tests, or checks the exercise you're doing. See [[0.2 The Workbench Tour]].
 
 > [!question]- What are AddressSanitizer and UBSan, and why are they on in Debug builds?
-> Tools built into the program that stop it the moment it touches memory it shouldn't (ASan) or does something undefined like signed overflow (UBSan), and say which line. Bugs that would otherwise corrupt memory silently become a clear report. See [[0.1 Installing the Toolchain]].
+> They're checkers built into your program. AddressSanitizer stops the program when it touches memory it shouldn't. UBSan stops it when it does something the language doesn't allow, like an int going past its biggest value. Both tell you the line. Without them, these bugs quietly damage memory. See [[0.1 Installing the Toolchain]].
 
 > [!rank] Youngling
 > You can build, run and test a program, and you know what the tools are for.
@@ -22,65 +22,65 @@ Answer each one out loud, or in a sentence on paper, then open the fold to compa
 ## Gate 1
 
 > [!question]- What happens between your .cpp file and a running program?
-> The preprocessor pastes in headers, the compiler turns each .cpp into an object file, and the linker joins the object files and libraries into one executable. "Undefined reference" is a linker error: something was declared but never defined. See [[1.01 Why CPP and the Compile-Link Model]].
+> First the preprocessor pastes in the header files. Then the compiler turns each .cpp file into an object file. Last, the linker joins the object files and libraries into one program. "Undefined reference" is a linker error. It means something was declared but its code was never written. See [[1.01 Why CPP and the Compile-Link Model]].
 
 > [!question]- When do you pass by value, by const reference, or by pointer?
-> By value for small, cheap things (int, double) or when you need your own copy. By `const T&` for bigger things you only read (strings, vectors). By `T&` to change the caller's object. By pointer when "nothing" (nullptr) is a valid answer. See [[1.02 References and Pointers]].
+> Pass small things, like an int or a double, by value. Pass bigger things you only read, like a string or a vector, by const reference: `const T&`. Use `T&` when the function should change the caller's object. Use a pointer when "nothing" is an allowed answer, written nullptr. See [[1.02 References and Pointers]].
 
 > [!question]- What does RAII mean?
-> Resource Acquisition Is Initialisation: an object takes a resource (memory, a file, a lock) in its constructor and releases it in its destructor, so the resource is released however the scope ends: normal return, early return or exception. See [[1.05 RAII and Object Lifetime]].
+> It stands for Resource Acquisition Is Initialisation. An object gets a resource, like memory or a file, when it's created. It gives the resource back automatically when it's destroyed. So the resource is always given back, however the function ends. See [[1.05 RAII and Object Lifetime]].
 
 > [!question]- What is a class invariant?
-> A rule that's always true for a valid object (a balance is never negative, a date is a real date). Constructors establish it, member functions keep it, private data stops outsiders breaking it. See [[1.06 Classes and Invariants]].
+> It's a rule that's always true for a valid object. For example, a bank balance is never negative. The constructor makes the rule true, the member functions keep it true, and private data stops other code breaking it. See [[1.06 Classes and Invariants]].
 
 > [!rank] Padawan
-> You can write programs out of functions and small classes, and you know who owns what.
+> You can build programs from functions and small classes, and you know who owns what.
 
 ## Gate 2
 
 > [!question]- What does std::move actually do?
-> Nothing by itself: it casts an object to an rvalue reference, which lets a move constructor or move assignment steal its resources instead of copying them. The moved-from object is left valid but unspecified. See [[2.03 Move Semantics]].
+> On its own, nothing. It marks an object as "you may take my contents". Then a move constructor can take its memory instead of copying it. The object you moved from is still valid, but you shouldn't rely on what's in it. See [[2.03 Move Semantics]].
 
 > [!question]- unique_ptr or shared_ptr?
-> unique_ptr by default: one owner, no overhead, can be moved. shared_ptr only when ownership is genuinely shared and nobody knows who finishes last. Plain pointers and references for "using, not owning". See [[2.04 Smart Pointers]].
+> Use unique_ptr by default. It has one owner and costs nothing extra. Use shared_ptr only when several parts of the program really share an object, and none of them knows which will finish last. Use plain pointers and references when you only use something and don't own it. See [[2.04 Smart Pointers]].
 
 > [!question]- What is the rule of zero?
-> Write classes whose members already manage themselves (std::string, std::vector, unique_ptr), and write no destructor, copy or move operations at all: the defaults are correct. See [[2.02 The Rule of Zero, Three and Five]].
+> Build your classes from members that already clean up after themselves, like std::string, std::vector and unique_ptr. Then write no destructor, copy or move functions at all. The automatic ones are correct. See [[2.02 The Rule of Zero, Three and Five]].
 
 ## Gate 3
 
 > [!question]- Why is std::vector the default container?
-> Its elements sit next to each other in memory, which makes walking through them very fast on real hardware, and it grows by itself. Reach for something else only for a reason: lookup by key, stable addresses, fast insertion in the middle. See [[3.08 Choosing a Container]].
+> Its elements sit next to each other in memory, which makes going through them very fast. It also grows by itself. Only pick something else for a reason, like looking things up by name. See [[3.08 Choosing a Container]].
 
 > [!question]- What makes an iterator invalid?
-> Anything that may move the elements: push_back or insert on a vector can reallocate and invalidate every iterator, pointer and reference into it; erase invalidates from the erased element on. See [[3.03 Algorithms and Iterators]].
+> Anything that may move the elements. On a vector, push_back or insert can move everything to a new place. Then every iterator, pointer and reference into it is out of date. See [[3.03 Algorithms and Iterators]].
 
 > [!rank] Knight
-> You use the standard library instead of writing it yourself, and you know its traps.
+> You use the standard library instead of writing everything yourself, and you know its traps.
 
 ## Gate 4
 
 > [!question]- What's the difference between a Debug and a Release build?
-> Debug: no optimisation, debug information, sanitizers on: for finding bugs. Release: optimised, no sanitizers: for running fast. Test both: some bugs only appear when the optimiser takes undefined behaviour at its word. See [[4.01 CMake Properly]].
+> A Debug build is for finding bugs. It has no speed-ups, it keeps debug information, and the checkers are on. A Release build is for speed. It's optimised and has no checkers. Test both, because some bugs only show up in an optimised build. See [[4.01 CMake Properly]].
 
-> [!question]- Why does LeakSanitizer have to be off under gdb?
-> LeakSanitizer stops the world and inspects the process with ptrace at exit, and a process being debugged is already traced by gdb: the two can't both trace it. ASAN_OPTIONS=detect_leaks=0 keeps ASan itself working. See [[4.03 Debugging with gdb]].
+> [!question]- Why does the leak checker have to be off when you use gdb?
+> At the end of the program, the leak checker needs to take control of the program to look for leaks. But gdb already has control of it, and only one tool can at a time. Setting ASAN_OPTIONS=detect_leaks=0 turns just the leak check off, and the other checks keep working. See [[4.03 Debugging with gdb]].
 
 > [!question]- What do clang-tidy and cppcheck do that the compiler doesn't?
-> They read your code for patterns that compile but are wrong or risky: unchecked results, dangling references, a missing virtual destructor, modernisation (nullptr, override), and in clang-tidy's analyser, paths through the code where something goes wrong. See [[4.04 Static Analysis - clang-tidy and cppcheck]].
+> They read your code looking for things that compile but are wrong or risky. For example, results you didn't check, references to things that no longer exist, or old-style code with a modern replacement. See [[4.04 Static Analysis - clang-tidy and cppcheck]].
 
 ## Gate 5
 
 > [!question]- What does O(n log n) tell you, and what doesn't it?
-> How the work grows as the input grows: doubling n a bit more than doubles the work. It doesn't tell you the constant: an O(n) algorithm with a slow constant can lose to O(n log n) for real sizes. See [[5.01 Complexity]].
+> It tells you how the work grows as the input grows. Doubling the input makes the work a bit more than double. It doesn't tell you how fast each step is. So a "slower" method can still win for the sizes you really use. See [[5.01 Complexity]].
 
 ## Gate 6
 
 > [!question]- What is undefined behaviour, and why is it a security problem?
-> Code the C++ standard places no requirements on (signed overflow, out-of-bounds access, use after free, data races). The compiler may assume it never happens, so the program can do anything, including what an attacker steers it to. See [[6.01 Undefined Behaviour]].
+> It's code that the C++ rules say nothing about. Examples are an int going past its biggest value, reading past the end of an array, and using memory after freeing it. The compiler assumes it never happens. So the program can do anything, including what an attacker wants. See [[6.01 Undefined Behaviour]].
 
-> [!question]- Name three exploit mitigations and what each stops.
-> Stack canaries (a stack overflow is detected before the function returns), NX (data can't be run as code), ASLR / PIE (code and data move every run, so addresses can't be guessed). RELRO and FORTIFY_SOURCE too. See [[6.06 Hardening and Exploit Mitigations]].
+> [!question]- Name three protections against attacks, and what each one stops.
+> Stack canaries notice when a stack overflow has happened, before it's used. NX stops data being run as code. ASLR moves the program's code and data to new addresses every run, so an attacker can't guess them. See [[6.06 Hardening and Exploit Mitigations]].
 
 > [!rank] Master
-> You can explain why C++ code is or isn't safe, and prove it with tools.
+> You can explain why C++ code is safe or unsafe, and show it with tools.
