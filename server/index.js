@@ -86,6 +86,16 @@ function loadModules() {
   });
   register('config.get', async () => config.get());
   register('config.save', async (p) => config.save(p));
+  // "Get new course notes": notes added to the bundled vaults since you got
+  // them; nothing you have is replaced. A course vault you don't have yet is
+  // added to Guides.
+  register('vaults.updateCourse', async () => {
+    const got = config.installBundledVaults();
+    const c = config.get();
+    const missing = got.filter((g) => !c.vaults.some((v) => v.name === g.name));
+    if (missing.length) config.save({ ...c, vaults: [...c.vaults, ...missing.map((g) => ({ path: g.path, name: g.name }))] });
+    return got;
+  });
   register('app.info', async () => ({
     version: require('../package.json').version, home: config.HOME,
     configFile: config.CONFIG_FILE, dataDir: config.DATA_DIR, platform: process.platform,

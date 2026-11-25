@@ -523,6 +523,64 @@ async function test(name, fn) {
     await assert.rejects(call('guides.read', { file: path.join(PROJ, 'CMakeLists.txt') }), /outside your vaults/);
   });
 
+  await test('course vaults: copied to ~/Notes on the first start; new notes later, your edits never replaced', async () => {
+    const { execFileSync } = require('child_process');
+    const home = fs.mkdtempSync(path.join(HOME, 'first-'));
+    const run = (code) => JSON.parse(execFileSync(process.execPath, ['-e', code], { cwd: path.join(__dirname, '..'), env: { ...process.env, HOME: home, XDG_CONFIG_HOME: '', XDG_DATA_HOME: '' }, encoding: 'utf8' }));
+    const first = run(`const c = require('./server/config').load(); console.log(JSON.stringify(c.vaults))`);
+    assert.deepStrictEqual(first, [{ path: path.join(home, 'Notes', 'C-Path'), name: 'C-Path' }, { path: path.join(home, 'Notes', 'CPP-Path'), name: 'CPP-Path' }]);
+    const cpp = path.join(home, 'Notes', 'CPP-Path');
+    assert.ok(fs.existsSync(path.join(cpp, 'CPP Start Here.md')) && fs.existsSync(path.join(home, 'Notes', 'C-Path', 'C Start Here.md')));
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(home, '.config', 'cpp-path-workbench', 'config.json'), 'utf8')).vaults.map((v) => v.name), ['C-Path', 'CPP-Path'], 'remembered');
+    // your changes: an edited note, a daily note, a deleted note
+    const edited = path.join(cpp, 'CPP Done Log.md');
+    fs.writeFileSync(edited, '# My log\n');
+    fs.mkdirSync(path.join(cpp, 'Daily'));
+    fs.writeFileSync(path.join(cpp, 'Daily', '2026-11-25.md'), '# today\n');
+    fs.rmSync(path.join(cpp, 'Phase 3 - The Standard Library', '3.05 Ranges.md'));
+    const again = run(`const c = require('./server/config'); c.load(); console.log(JSON.stringify(c.installBundledVaults()))`);
+    assert.deepStrictEqual(again.find((g) => g.name === 'CPP-Path').copied, 1, 'only the missing note');
+    assert.strictEqual(again.find((g) => g.name === 'C-Path').copied, 0);
+    assert.strictEqual(fs.readFileSync(edited, 'utf8'), '# My log\n');
+    assert.ok(fs.existsSync(path.join(cpp, 'Daily', '2026-11-25.md')) && fs.existsSync(path.join(cpp, 'Phase 3 - The Standard Library', '3.05 Ranges.md')));
+    // removing every vault sticks; the app's own copy is never used as your vault
+    fs.writeFileSync(path.join(home, '.config', 'cpp-path-workbench', 'config.json'), JSON.stringify({ vaults: [] }));
+    fs.rmSync(path.join(home, 'Notes'), { recursive: true });
+    assert.deepStrictEqual(run(`console.log(JSON.stringify(require('./server/config').load().vaults))`), []);
+    assert.ok(!fs.existsSync(path.join(home, 'Notes')));
+    const inApp = run(`console.log(JSON.stringify(require('./server/distro').findFolderWith('CPP Start Here.md', { home: ${JSON.stringify(path.join(__dirname, '..'))}, accept: (d) => true })))`);
+    assert.match(inApp, /vaults[\\/]CPP-Path$/, 'it is there to find...');
+    assert.strictEqual(run(`console.log(JSON.stringify(require('./server/config').findVault()))`), null, '...but findVault skips the app\'s own copy');
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  await test('course vaults: both load, every question has a phase, every link goes somewhere or to a note still to come', async () => {
+    const { execFileSync } = require('child_process');
+    const out = JSON.parse(execFileSync(process.execPath, ['-e', `
+      const fs = require('fs'), path = require('path');
+      const notes = [];
+      const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (p.endsWith('.md')) notes.push(p); } };
+      walk('vaults');
+      const names = new Set(notes.map((p) => path.basename(p, '.md').toLowerCase()));
+      const rels = new Set(notes.map((p) => path.relative(path.join('vaults', p.split(path.sep)[1]), p).replace(/\\.md$/, '').toLowerCase()));
+      const missing = new Set();
+      let questions = 0;
+      for (const p of notes) {
+        const t = fs.readFileSync(p, 'utf8').replace(/^(\`\`\`)[\\s\\S]*?^\\1/gm, '').replace(/\`[^\`\\n]*\`/g, '');
+        questions += (t.match(/^> \\[!question\\]/gm) || []).length;
+        for (const m of t.matchAll(/\\[\\[([^\\]\\n]+)\\]\\]/g)) {
+          const target = m[1].replace(/\\\\\\|/g, '|').split('|')[0].split('#')[0].trim().toLowerCase();
+          if (target && !names.has(target) && !rels.has(target) && target !== '...') missing.add(target);
+        }
+      }
+      console.log(JSON.stringify({ count: notes.length, questions, missing: [...missing] }));
+    `], { cwd: path.join(__dirname, '..'), encoding: 'utf8' }));
+    assert.ok(out.count >= 68, `${out.count} notes`);
+    assert.ok(out.questions >= 150, `${out.questions} questions`);
+    // links to the phases still to be written (4-6) are fine; anything else is a typo
+    for (const m of out.missing) assert.match(m, /^[4-6]\.\d\d /, `a link to "${m}" goes nowhere`);
+  });
+
   await test('notes: backlinks, the graph, tags, new and daily notes, ticking tasks', async () => {
     const l = await call('guides.list');
     const cv = l.vaults.find((v) => v.name === 'C-Path'), mv = l.vaults.find((v) => v.name === 'Scratch Notes');
