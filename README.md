@@ -1,6 +1,6 @@
-# C++ Path Workbench
+# McFez's HomeBrew Development Environment (MHDE)
 
-One window for learning and writing **C and C++**: write it, build it with
+MHDE is one window for learning and writing **C and C++**: write it, build it with
 CMake (or a lone file with gcc / g++), test it, run it, break it on purpose,
 step through it in gdb or Valgrind, ask two static analyzers about it, judge
 competitive-programming solutions, commit it, read your notes vaults beside
@@ -13,8 +13,10 @@ standard (gcc / C17 and g++ / C++20 unless you change them in Settings). A
 `.c` file is always C and a `.cpp` file always C++; a `.h` header follows the
 switch.
 
-It's the Kernel Path Workbench rebuilt around the CPP-Path vault. The two
-install side by side: different name, icon, settings folder and window.
+It started as the C++ Path Workbench, which was itself the Kernel Path
+Workbench rebuilt around the CPP-Path vault. Its settings and data folders
+still use the old name (`cpp-path-workbench`), so an existing install keeps
+everything when you update. MHDE and the Kernel Path Workbench install side by side: different name, icon, settings folder and window.
 **Windows** (10 and 11, one double-click), Ubuntu and Fedora.
 
 | Part | What it does |
@@ -124,7 +126,7 @@ command. It asks before each big step:
    builds than on `C:`);
 4. installs the compilers and tools, Node.js and the app's packages inside
    Ubuntu (`scripts/wsl-setup.sh`; sudo asks for your Linux password);
-5. puts **C++ Path Workbench** in the Start menu and on the desktop.
+5. puts **McFez's HomeBrew Development Environment (MHDE)** in the Start menu and on the desktop.
 
 The shortcut starts it in its own window, with no console window, through
 WSLg (Windows 11, or Windows 10 22H2 with the current WSL from the Microsoft
@@ -133,7 +135,7 @@ message says why (WSLg not running, Electron missing a library...) and what to
 run to fix it. If you'd rather have it in your browser, install with
 `-Mode browser`. To update, download the new version and run the
 installer again (your settings, code and vaults are untouched). *Uninstall
-C++ Path Workbench shortcuts* removes what it put on Windows. If it won't
+McFez's HomeBrew Development Environment (MHDE) shortcuts* removes what it put on Windows. If it won't
 start, the reason pops up, and the details are in
 `~/.local/state/cpp-path-workbench/launch.log` in Ubuntu. Your vault can stay
 in Documents or OneDrive: the app finds it there.
@@ -217,12 +219,12 @@ its project publishes:
 | CMake, Ninja, MinGit | projects and git |
 | Node.js | the setup and the app's helpers |
 
-then the app and its Electron window, and puts **C++ Path Workbench
+then the app and its Electron window, and puts **McFez's HomeBrew Development Environment (MHDE)
 (Windows)** in the Start menu. The shortcut starts `electron.exe` directly,
 with no script in between, so it works where group policy blocks Windows
 Script Host. Downloads go through the proxy with your
 Windows sign-in; if one is blocked, the installer says where to download it
-by hand and where to put it. *Uninstall C++ Path Workbench* removes it all
+by hand and where to put it. *Uninstall McFez's HomeBrew Development Environment (MHDE)* removes it all
 (your settings, notes and code stay).
 
 What's different from Linux and WSL:

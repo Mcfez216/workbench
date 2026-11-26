@@ -148,7 +148,7 @@ async function send({ to, cc, subject, text, inReplyTo, references }) {
   const info = await transport.sendMail({
     from, to, cc: cc || undefined, subject, text,
     inReplyTo: inReplyTo || undefined, references: references && references.length ? references : undefined,
-    headers: { 'User-Agent': 'C++ Path Workbench' },
+    headers: { 'User-Agent': 'MHDE' },
     // Plain text exactly as written: no HTML part, no format=flowed rewrapping.
   });
   transport.close();

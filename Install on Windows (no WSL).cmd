@@ -1,5 +1,5 @@
 @echo off
-rem C++ Path Workbench for Windows WITHOUT WSL: double-click this.
+rem MHDE (McFez's HomeBrew Development Environment) for Windows WITHOUT WSL: double-click this.
 rem It downloads a portable C/C++ toolchain (clang with the sanitizers, gdb,
 rem CMake, Ninja, Git, Node.js) into your own user folder - no administrator
 rem rights - installs the app next to it, and puts it in your Start menu.

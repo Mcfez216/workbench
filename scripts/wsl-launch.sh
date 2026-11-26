@@ -33,7 +33,7 @@ tell() {
 	if [ $CHECK = 0 ] && command -v powershell.exe >/dev/null 2>&1; then
 		# the message goes in through an environment variable: no quoting to get wrong
 		CPW_MSG="$msg" WSLENV="${WSLENV:+$WSLENV:}CPW_MSG" powershell.exe -NoProfile -NonInteractive -Command \
-			'Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show($env:CPW_MSG, "C++ Path Workbench")' >/dev/null 2>&1 || true
+			'Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show($env:CPW_MSG, "MHDE")' >/dev/null 2>&1 || true
 	else
 		printf '%s\n' "$msg" >&2
 	fi
@@ -102,7 +102,7 @@ if [ $CHECK = 1 ]; then
 	exit 0
 fi
 if [ -n "$problems" ]; then
-	tell "C++ Path Workbench can't open its window yet.
+	tell "MHDE can't open its window yet.
 
 $problems
 

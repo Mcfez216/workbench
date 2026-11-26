@@ -121,7 +121,7 @@ async function main() {
   if (b.kind === 'chromium') fs.mkdirSync(profileDir(), { recursive: true });
   const win = spawn(b.path, browserArgs(b, backend.url), { stdio: 'ignore' });
   win.on('error', (e) => console.error(`${b.path}: ${e.message}\nOpen this in a browser instead:\n  ${backend.url}`));
-  console.log(`C++ Path Workbench: a ${b.kind === 'chromium' ? 'Chromium app' : 'Firefox'} window (${b.path}).`);
+  console.log(`MHDE: a ${b.kind === 'chromium' ? 'Chromium app' : 'Firefox'} window (${b.path}).`);
   win.on('exit', () => process.exit(0));
 }
 

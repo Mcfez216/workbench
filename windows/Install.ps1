@@ -1,4 +1,4 @@
-# C++ Path Workbench on Windows, through WSL (Ubuntu on Windows).
+# MHDE (McFez's HomeBrew Development Environment) on Windows, through WSL (Ubuntu on Windows).
 #
 # Run it by double-clicking "Install on Windows.cmd" in the app's folder,
 # or from PowerShell:
@@ -43,11 +43,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$AppName = 'C++ Path Workbench'
+$AppName = 'McFez''s HomeBrew Development Environment (MHDE)'
+$OldAppName = 'C++ Path Workbench'                  # the name before; its shortcuts are removed
 $LinuxDir = 'cpp-path-workbench'                       # in the Linux home
 $Launcher = Join-Path $env:LOCALAPPDATA 'CppPathWorkbench'
 $StartMenu = Join-Path ([Environment]::GetFolderPath('Programs')) $AppName
 $DesktopLink = Join-Path ([Environment]::GetFolderPath('Desktop')) "$AppName.lnk"
+$OldLinks = @((Join-Path ([Environment]::GetFolderPath('Programs')) $OldAppName), (Join-Path ([Environment]::GetFolderPath('Desktop')) "$OldAppName.lnk"))
 $Source = Split-Path -Parent $PSScriptRoot             # the app's folder (this script is in windows\)
 $RunOnceKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce'
 
@@ -146,8 +148,8 @@ function ExportWindowsCerts([string]$file) {
 # ------------------------------------------------------------------ uninstall
 if ($Uninstall) {
     Say "Removing the $AppName shortcuts and launcher"
-    foreach ($p in @($StartMenu, $DesktopLink, $Launcher)) {
-        if (Test-Path $p) { Remove-Item -Recurse -Force $p; Write-Host "removed $p" }
+    foreach ($p in (@($StartMenu, $DesktopLink, $Launcher) + $OldLinks)) {
+        if (Test-Path -LiteralPath $p) { Remove-Item -Recurse -Force -LiteralPath $p; Write-Host "removed $p" }
     }
     Write-Host ''
     Write-Host 'The app and its tools are still in WSL, with your settings and your code.'
@@ -292,6 +294,8 @@ function MakeLink([string]$path, [string]$target, [string]$arguments, [string]$d
     $l.Description = $description
     $l.Save()
 }
+# the shortcuts from before the app was renamed
+foreach ($p in $OldLinks) { if (Test-Path -LiteralPath $p) { Remove-Item -Recurse -Force -LiteralPath $p } }
 New-Item -ItemType Directory -Force -Path $StartMenu | Out-Null
 MakeLink (Join-Path $StartMenu "$AppName.lnk") $wscript "`"$vbs`"" 'C and C++: editor, build, run, debug, tests, sandbox, guides'
 # the app opens in its own window; a browser shortcut only if you asked for one (-Mode browser)

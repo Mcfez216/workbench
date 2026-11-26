@@ -1,5 +1,6 @@
 #!/bin/sh
-# Puts C++ Path Workbench in your app launcher (GNOME: Activities → type "C++";
+# Puts MHDE (McFez's HomeBrew Development Environment) in your app launcher
+# (GNOME: Activities → type "MHDE";
 # in WSL, WSLg may also add it to the Windows Start menu; on OpenBSD, any
 # desktop that reads ~/.local/share/applications: Xfce, KDE, GNOME...).
 # Run from the project folder:  npm run install-desktop
@@ -22,13 +23,13 @@ cp "$DIR/build/icon.png" "$ICONS/cpp-path-workbench.png"
 cat > "$APPS/cpp-path-workbench.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=C++ Path Workbench
+Name=McFez's HomeBrew Development Environment (MHDE)
 Comment=Editor, CMake, tests, gdb, sandbox, judge, terminal, git and guides for the C++ Path
 Exec=sh -c 'cd "$DIR" && PATH="$NODE_BIN:/usr/local/bin:\$PATH" exec npm start'
 Icon=cpp-path-workbench
 Terminal=false
 Categories=Development;IDE;
-Keywords=C++;cpp;CMake;IDE;
+Keywords=MHDE;C;C++;cpp;Rust;CMake;IDE;
 StartupWMClass=cpp-path-workbench
 DESKTOP
 update-desktop-database "$APPS" 2>/dev/null || true

@@ -207,7 +207,7 @@ module.exports = { startServer, register, broadcast };
 if (require.main === module) {
   const portArg = process.argv.indexOf('--port');
   startServer({ port: portArg > 0 ? Number(process.argv[portArg + 1]) : 0 }).then((s) => {
-    console.log(`C++ Path Workbench (browser mode)\nOpen: ${s.url}`);
+    console.log(`MHDE (browser mode)\nOpen: ${s.url}`);
     if (process.env.CPW_URL_FILE) fs.writeFileSync(process.env.CPW_URL_FILE, s.url);
   });
   const stop = () => { for (const fn of (api.onExit || [])) try { fn(); } catch (e) {} process.exit(0); };

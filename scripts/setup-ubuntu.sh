@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# C++ Path Workbench: everything it needs on Ubuntu (24.04; 22.04 should work), either
+# MHDE (McFez's HomeBrew Development Environment): everything it needs on Ubuntu (24.04; 22.04 should work), either
 # a normal install or Ubuntu in WSL on Windows.
 #
 #   bash scripts/setup-ubuntu.sh               packages; says what to do about Node.js

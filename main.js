@@ -67,7 +67,7 @@ async function createWindow() {
 
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 800, minHeight: 500,
-    backgroundColor: '#1f2c5a', title: 'C++ Path Workbench', show: false,
+    backgroundColor: '#1f2c5a', title: "McFez's HomeBrew Development Environment (MHDE)", show: false,
     icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true, spellcheck: true },
   });
@@ -165,7 +165,7 @@ if (!app.requestSingleInstanceLock()) {
   Menu.setApplicationMenu(null);           // the app draws its own menu bar; F10 and Alt+letter reach it
   app.whenReady().then(createWindow).catch((err) => {
     logStart(`could not start: ${err && err.stack || err}`);
-    dialog.showErrorBox('C++ Path Workbench could not start', err && err.shown ? err.message : String(err && err.stack || err));
+    dialog.showErrorBox('MHDE could not start', err && err.shown ? err.message : String(err && err.stack || err));
     app.quit();
   });
   app.on('window-all-closed', () => app.quit());

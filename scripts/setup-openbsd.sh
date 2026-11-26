@@ -1,5 +1,5 @@
 #!/bin/sh
-# C++ Path Workbench on OpenBSD (7.7 or newer, amd64 or arm64): the packages,
+# MHDE (McFez's HomeBrew Development Environment) on OpenBSD (7.7 or newer, amd64 or arm64): the packages,
 # the app's own npm packages, and a launcher in your desktop's menu.
 #
 #   sh scripts/setup-openbsd.sh            install everything (asks doas for packages)
@@ -75,4 +75,4 @@ say "A launcher in your desktop's menu"
 sh scripts/install-desktop.sh || warn "No launcher made; start it with: cd $DIR && npm start"
 
 say "Done"
-echo "Start it from your desktop's menu (C++ Path Workbench), or:  cd \"$DIR\" && npm start"
+echo "Start it from your desktop's menu (MHDE), or:  cd \"$DIR\" && npm start"

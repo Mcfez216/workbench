@@ -1,4 +1,4 @@
-# C++ Path Workbench on Windows, WITHOUT WSL: the Windows version.
+# MHDE (McFez's HomeBrew Development Environment) on Windows, WITHOUT WSL: the Windows version.
 #
 # Run it by double-clicking "Install on Windows (no WSL).cmd" in the app's
 # folder, or from PowerShell:
@@ -44,7 +44,8 @@ $ProgressPreference = 'SilentlyContinue'      # Invoke-WebRequest is many times 
 # A proxy that wants your Windows sign-in gets it, as your browser's does
 [Net.WebRequest]::DefaultWebProxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials
 
-$AppName = 'C++ Path Workbench'
+$AppName = 'McFez''s HomeBrew Development Environment (MHDE)'
+$OldAppName = 'C++ Path Workbench'                  # the name before; its shortcuts are removed
 $Root = Join-Path $env:LOCALAPPDATA 'CppPathWorkbenchNative'
 $Tools = Join-Path $Root 'tools'
 $App = Join-Path $Root 'app'
@@ -52,6 +53,7 @@ $Cache = if ($Downloads) { $Downloads } else { Join-Path $Root 'downloads' }
 $CertFile = Join-Path $Root 'windows-roots.pem'
 $StartMenu = Join-Path ([Environment]::GetFolderPath('Programs')) "$AppName (Windows)"
 $DesktopLink = Join-Path ([Environment]::GetFolderPath('Desktop')) "$AppName (Windows).lnk"
+$OldLinks = @((Join-Path ([Environment]::GetFolderPath('Programs')) "$OldAppName (Windows)"), (Join-Path ([Environment]::GetFolderPath('Desktop')) "$OldAppName (Windows).lnk"))
 $Source = Split-Path -Parent $PSScriptRoot
 
 function Say([string]$text) { Write-Host ''; Write-Host "==> $text" -ForegroundColor Green }
@@ -82,8 +84,8 @@ $Pins = @(
 # ------------------------------------------------------------------ uninstall
 if ($Uninstall) {
     Say "Removing $AppName (Windows version)"
-    foreach ($p in @($StartMenu, $DesktopLink, $Root)) {
-        if (Test-Path $p) { Remove-Item -Recurse -Force $p; Write-Host "removed $p" }
+    foreach ($p in (@($StartMenu, $DesktopLink, $Root) + $OldLinks)) {
+        if (Test-Path -LiteralPath $p) { Remove-Item -Recurse -Force -LiteralPath $p; Write-Host "removed $p" }
     }
     Write-Host ''
     Write-Host 'Your settings, notes and code are still where they were:'
@@ -300,6 +302,8 @@ function MakeLink([string]$path, [string]$target, [string]$arguments, [string]$d
     $l.Description = $description
     $l.Save()
 }
+# the shortcuts from before the app was renamed
+foreach ($p in $OldLinks) { if (Test-Path -LiteralPath $p) { Remove-Item -Recurse -Force -LiteralPath $p } }
 New-Item -ItemType Directory -Force -Path $StartMenu | Out-Null
 MakeLink (Join-Path $StartMenu "$AppName.lnk") $electron $appArg 'C and C++: editor, build, run, debug, tests, sandbox, guides'
 MakeLink (Join-Path $StartMenu "Uninstall $AppName.lnk") (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $Root 'Install-Native.ps1')`" -Uninstall" 'Removes the Windows version (your notes and code stay)' $Root
