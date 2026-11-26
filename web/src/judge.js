@@ -23,7 +23,7 @@ function firstDifference(out, expected) {
 
 async function openJudge(file) {
   const ed = activeEditor();
-  file = typeof file === 'string' ? file : ed && /\.(cpp|cc|cxx|c)$/.test(ed.file) ? ed.file : await call('state.get', { key: 'judge.last', fallback: null });
+  file = typeof file === 'string' ? file : ed && /\.(cpp|cc|cxx|c|rs)$/.test(ed.file) ? ed.file : await call('state.get', { key: 'judge.last', fallback: null });
   const existing = tabs.get('judge');
   if (existing && file && existing.file !== file) { existing.load(file); tabs.focus('judge'); return existing; }
   if (existing) { tabs.focus('judge'); return existing; }
@@ -41,7 +41,7 @@ async function openJudge(file) {
       const summary = h('div', { class: 'judge-summary' });
       const list = h('div', { class: 'judge-cases' });
       page.append(h('div', { class: 'toolbar' }, fileEl, h('label', { class: 'muted' }, 'limit ', tl, ' ms'), runBtn, addBtn, useBtn, newBtn), summary, list,
-        h('p', { class: 'muted small' }, 'Output is compared token by token, the way judges do it: spacing and line breaks don\'t matter, numbers with a decimal point may differ by 1e-6. Compiled with -O2 and no sanitizers (gcc for .c files, g++ for .cpp), like a judge; run it with Ctrl+F9 to get the sanitizers.'));
+        h('p', { class: 'muted small' }, 'Output is compared token by token, the way judges do it: spacing and line breaks don\'t matter, numbers with a decimal point may differ by 1e-6. Compiled with -O2 and no sanitizers (gcc for .c files, g++ for .cpp, rustc -O for .rs), like a judge; run it with Ctrl+F9 to get the sanitizers (or, in Rust, the debug build\'s checks).'));
       this.cases = [];
       const save = debounce(() => { if (this.file) call('cp.saveCases', { file: this.file, cases: this.cases, timeLimitMs: +tl.value }); }, 500);
       const draw = (results = []) => {
@@ -119,7 +119,8 @@ export function initJudge() {
   });
   command('judge.new', 'Judge: new problem from the template...', [], async () => {
     const lang = language();
-    const name = await prompt(`New ${lang === 'c' ? 'C' : 'C++'} problem`, `A name for it (the file is cp/problems/<name>.${lang === 'c' ? 'c' : 'cpp'} in your workspace)`, '', { placeholder: 'cf-1850A', hint: 'Switch C / C++ on the toolbar (Ctrl+Shift+J) for the other language.' });
+    const label = { c: 'C', cpp: 'C++', rust: 'Rust' }[lang] || 'C++', ext = { c: 'c', cpp: 'cpp', rust: 'rs' }[lang] || 'cpp';
+    const name = await prompt(`New ${label} problem`, `A name for it (the file is cp/problems/<name>.${ext} in your workspace)`, '', { placeholder: 'cf-1850A', hint: 'Switch C / C++ / Rust on the toolbar (Ctrl+Shift+J) for another language.' });
     if (!name) return;
     try {
       const r = await call('cp.newProblem', { name, lang });

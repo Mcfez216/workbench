@@ -13,6 +13,7 @@ import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, c
 import { lintKeymap, lintGutter, setDiagnostics } from '@codemirror/lint';
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, syntaxHighlighting, indentUnit, StreamLanguage } from '@codemirror/language';
 import { cpp } from '@codemirror/lang-cpp';
+import { rust } from '@codemirror/lang-rust';
 import { markdown } from '@codemirror/lang-markdown';
 import { shell } from '@codemirror/legacy-modes/mode/shell';
 import { diff } from '@codemirror/legacy-modes/mode/diff';
@@ -50,6 +51,7 @@ export function languageFor(file) {
   const code = fileLanguage(file);
   if (code === 'cpp') return { name: 'C++', ext: cpp(), lsp: 'cpp', code: true, id: 'cpp' };
   if (code === 'c') return { name: 'C', ext: cpp(), lsp: 'c', code: true, id: 'c' };
+  if (code === 'rust') return { name: 'Rust', ext: rust(), lsp: 'rust', code: true, id: 'rust', server: 'rust-analyzer' };
   if (base === 'CMakeLists.txt' || ext === 'cmake') return { name: 'CMake', ext: StreamLanguage.define(cmake) };
   if (/^(GNU)?[Mm]akefile$/.test(base) || ext === 'mk') return { name: 'Makefile', ext: StreamLanguage.define(shell), tabs: true };
   if (['sh', 'bash', 'zsh'].includes(ext) || ['.bashrc', '.bash_profile', '.profile'].includes(base)) return { name: 'Shell', ext: StreamLanguage.define(shell) };
@@ -107,6 +109,31 @@ const C_SNIPPETS = [
   S('guard', 'include guard', '#ifndef ${NAME}_H\n#define ${NAME}_H\n\n${}\n\n#endif /* ${NAME}_H */'),
   S('fori', 'for over an array', 'for (size_t ${i} = 0; ${i} < sizeof ${arr} / sizeof ${arr}[0]; ++${i}) {\n\t${}\n}'),
 ];
+// Rust has its own shapes (no semicolon after a block, match arms, ?)
+const RUST_SNIPPETS = [
+  S('main', 'fn main()', 'fn main() {\n\t${}\n}'),
+  S('fn', 'fn name(...) -> T', 'fn ${name}(${x: i32}) -> ${i32} {\n\t${}\n}'),
+  S('println', 'println!("{}", ...)', 'println!("${{}}", ${value});'),
+  S('let', 'let x = ...', 'let ${x} = ${value};'),
+  S('letm', 'let mut x = ...', 'let mut ${x} = ${value};'),
+  S('if', 'if', 'if ${condition} {\n\t${}\n}'),
+  S('ife', 'if ... else', 'if ${condition} {\n\t${}\n} else {\n\t\n}'),
+  S('for', 'for x in ...', 'for ${x} in ${items} {\n\t${}\n}'),
+  S('fori', 'for i in 0..n', 'for ${i} in 0..${n} {\n\t${}\n}'),
+  S('while', 'while', 'while ${condition} {\n\t${}\n}'),
+  S('loop', 'loop', 'loop {\n\t${}\n}'),
+  S('match', 'match', 'match ${value} {\n\t${pattern} => ${},\n\t_ => {}\n}'),
+  S('iflet', 'if let Some(x) = ...', 'if let Some(${x}) = ${value} {\n\t${}\n}'),
+  S('struct', 'struct', '#[derive(Debug)]\nstruct ${Name} {\n\t${field}: ${Type},\n}'),
+  S('enum', 'enum', '#[derive(Debug)]\nenum ${Name} {\n\t${A},\n\t${B},\n}'),
+  S('impl', 'impl', 'impl ${Name} {\n\tfn ${new}(${}) -> Self {\n\t\t\n\t}\n}'),
+  S('trait', 'trait', 'trait ${Name} {\n\tfn ${method}(&self)${};\n}'),
+  S('test', '#[test] fn', '#[test]\nfn ${it_works}() {\n\tassert_eq!(${}, ${});\n}'),
+  S('tests', '#[cfg(test)] mod tests', '#[cfg(test)]\nmod tests {\n\tuse super::*;\n\n\t#[test]\n\tfn ${it_works}() {\n\t\t${}\n\t}\n}'),
+  S('vec', 'vec![...]', 'let ${v}: Vec<${i32}> = vec![${}];'),
+  S('result', 'fn ... -> Result', 'fn ${name}(${}) -> Result<${T}, ${String}> {\n\t\n\tOk(${})\n}'),
+  S('readline', 'read a line from stdin', 'let mut ${line} = String::new();\nstd::io::stdin().read_line(&mut ${line}).expect("couldn\'t read input");'),
+];
 const CPP_SNIPPETS = [
   ...COMMON_SNIPPETS,
   S('main', 'int main()', 'int main() {\n\t${}\n\treturn 0;\n}'),
@@ -134,7 +161,7 @@ function snippetSource(list) {
 }
 function snippetsFor(lang) {
   if (!lang.code || (cfg && cfg.editor && cfg.editor.snippets === false)) return [];
-  const src = snippetSource(lang.id === 'c' ? C_SNIPPETS : CPP_SNIPPETS);
+  const src = snippetSource(lang.id === 'c' ? C_SNIPPETS : lang.id === 'rust' ? RUST_SNIPPETS : CPP_SNIPPETS);
   return EditorState.languageData.of(() => [{ autocomplete: src }]);
 }
 
@@ -322,16 +349,18 @@ class KPWorkspace extends Workspace {
 
 const clients = new Map();
 const SESSION = Math.random().toString(36).slice(2) + Date.now().toString(36);   // this window load
-let clangdMissing = false;      // said once; not tried again until the window reloads
-function lspClient(root) {
-  if (clients.has(root)) return clients.get(root);
-  if (clangdMissing) return Promise.reject(new Error('clangd is not installed'));
+const missing = new Set();      // servers that aren't installed: said once, not tried again until the window reloads
+// clangd for C and C++, rust-analyzer for Rust: one client per project and server
+function lspClient(root, server = 'clangd') {
+  const key = `${root}|${server}`;
+  if (clients.has(key)) return clients.get(key);
+  if (missing.has(server)) return Promise.reject(new Error(`${server} is not installed`));
   const p = (async () => {
-    await call('lsp.start', { root, session: SESSION });
+    await call('lsp.start', { root, session: SESSION, server });
     const handlers = new Set();
-    on('lsp.message', (d) => { if (d.root === root && d.session === SESSION) for (const fn of handlers) fn(d.message); });
+    on('lsp.message', (d) => { if (d.root === root && d.session === SESSION && (d.server || 'clangd') === server) for (const fn of handlers) fn(d.message); });
     const transport = {
-      send: (message) => { call('lsp.send', { root, session: SESSION, message }).catch(() => {}); },
+      send: (message) => { call('lsp.send', { root, session: SESSION, server, message }).catch(() => {}); },
       subscribe: (fn) => handlers.add(fn),
       unsubscribe: (fn) => handlers.delete(fn),
     };
@@ -341,29 +370,29 @@ function lspClient(root) {
       extensions: [serverCompletion(), hoverTooltips(), serverDiagnostics(), signatureHelp()],
     });
     client.connect(transport);
-    status.set('lsp', 'clangd', { title: `clangd running for ${root}`, order: 20 });
+    status.set('lsp', server, { title: `${server} running for ${root}`, order: 20 });
     return client;
   })();
-  clients.set(root, p);
+  clients.set(key, p);
   p.catch((err) => {
-    clients.delete(root);
-    if (/not installed/.test(err.message)) { if (clangdMissing) return; clangdMissing = true; toast(err.message, 'info', 9000); }
-    else toast(`clangd: ${err.message}`, 'error');
+    clients.delete(key);
+    if (/not installed/.test(err.message)) { if (missing.has(server)) return; missing.add(server); toast(err.message, 'info', 9000); }
+    else toast(`${server}: ${err.message}`, 'error');
   });
   return p;
 }
 on('lsp.exit', (d) => {
   if (d.session !== SESSION) return;
-  clients.delete(d.root);
+  clients.delete(`${d.root}|${d.server || 'clangd'}`);
   status.set('lsp', '');
   if (d.error && !/not installed/.test(d.error)) toast(d.error, 'error', 8000);   // "not installed" was already said
 });
 
 async function lspExtension(file, lang) {
-  if (!lang.lsp || !cfg || !cfg.clangd.enabled) return [];
+  if (!lang.lsp || !cfg || (!cfg.clangd.enabled && lang.server !== 'rust-analyzer') || (lang.server === 'rust-analyzer' && cfg.rustAnalyzer === false)) return [];
   try {
-    const { root } = await call('lsp.root', { file });
-    const client = await lspClient(root);
+    const { root, server } = await call('lsp.root', { file });
+    const client = await lspClient(root, server);
     return client.plugin(fileUri(file), lang.lsp);
   } catch (err) { return []; }
 }
@@ -523,7 +552,8 @@ function activeView() { const t = tabs.active(); return t && t.view ? t.view : n
 
 export function setFileDiagnostics(file, problems) {
   const t = tabs.get('file:' + file);
-  if (!t || !t.view || (t.lang && t.lang.lsp && cfg && cfg.clangd.enabled)) return;  // clangd owns inline errors there
+  // clangd (or rust-analyzer) owns inline errors there
+  if (!t || !t.view || (t.lang && t.lang.lsp && cfg && (t.lang.server === 'rust-analyzer' ? cfg.rustAnalyzer !== false : cfg.clangd.enabled))) return;
   const doc = t.view.state.doc;
   const diags = problems.filter((p) => p.file === file && p.line > 0).map((p) => {
     const l = doc.line(Math.min(p.line, doc.lines));
@@ -558,18 +588,20 @@ export function initEditorCommands() {
   command('edit.definition', 'Go to definition (clangd)', ['F12'], () => { const t = activeEditor(); if (t) jumpToDefinition(t.view); });
   command('edit.references', 'Find references (clangd)', ['Shift+F12'], () => { const t = activeEditor(); if (t) findReferences(t.view); });
   command('edit.rename', 'Rename symbol (clangd)', ['Ctrl+Shift+R'], () => { const t = activeEditor(); if (t) renameSymbol(t.view); });
-  command('edit.format', 'Format file (clang-format)', ['Ctrl+Shift+O'], async () => {
+  command('edit.format', 'Format file (clang-format / rustfmt)', ['Ctrl+Shift+O'], async () => {
     const t = activeEditor();
     if (!t) return;
-    if (!t.lang.code) return toast('Formatting is for C and C++ files');
-    // through clangd when it's running (it knows the project), else clang-format itself
-    if (cfg.clangd.enabled && LSPPlugin.get(t.view) && formatDocument(t.view)) return;
+    if (!t.lang.code) return toast('Formatting is for C, C++ and Rust files');
+    const rustFile = t.lang.id === 'rust';
+    // C and C++: through clangd when it's running (it knows the project), else clang-format itself.
+    // Rust: rustfmt, always.
+    if (!rustFile && cfg.clangd.enabled && LSPPlugin.get(t.view) && formatDocument(t.view)) return;
     const before = t.view.state.doc.toString();
     const r = await call('format.file', { file: t.file, text: before });
     if (r.text === before) return toast('Already formatted', 'ok', 1500);
     if (t.view.state.doc.toString() !== before) return;     // you typed meanwhile
     t.view.dispatch({ changes: { from: 0, to: before.length, insert: r.text } });
-    toast('Formatted with clang-format', 'ok', 1500);
+    toast(`Formatted with ${rustFile ? 'rustfmt' : 'clang-format'}`, 'ok', 1500);
   });
   command('edit.otherFile', 'Switch header / source', ['Alt+F12'], async () => {
     const t = activeEditor();

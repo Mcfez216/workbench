@@ -939,3 +939,6 @@ const FLAG_HASHES = {
   'ctf-integer': '69043e05298d44370c11398e78716ffb54a09d9eb80d57532cff0f40ee965d25',
 };
 for (const ex of module.exports) if (ex.kind === 'ctf') ex.flagHash = FLAG_HASHES[ex.id];
+
+// The Rust exercises live in their own file
+module.exports.push(...require('./exercise-data-rust'));

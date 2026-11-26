@@ -124,6 +124,7 @@ md.renderer.rules.fence = (toks, i, opts, env) => {
   const n = env.blocks.push({ code: t.content, lang }) - 1;
   const btns = [`<button type="button" data-act="copy" data-i="${n}">Copy</button>`];
   if (SHELL.has(lang)) btns.push(`<button type="button" data-act="paste" data-i="${n}" title="Puts the commands at your terminal prompt (with _code/ meaning your workspace copy). Read them, then press Enter.">Paste into terminal</button>`);
+  if (['rust', 'rs'].includes(lang) && /\bfn\s+main\s*\(/.test(t.content)) btns.push(`<button type="button" data-act="sandbox" data-i="${n}" title="Open this program in the Rust sandbox">Try in sandbox</button>`);
   if (['cpp', 'c++', 'cxx', 'c'].includes(lang) && /\bint\s+main\s*\(/.test(t.content)) btns.push(`<button type="button" data-act="sandbox" data-i="${n}" title="Open this program in the ${lang === 'c' ? 'C' : 'C++'} sandbox">Try in sandbox</button>`);
   const body = opts.highlight(t.content, lang) || esc(t.content);
   return `<div class="codeblock" data-lang="${esc(lang)}"><div class="code-tools"><span class="code-lang">${esc(lang || 'text')}</span>${btns.join('')}</div><pre><code>${body}</code></pre></div>`;

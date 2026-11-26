@@ -106,7 +106,7 @@ function sanitizerWatch(cwd, title) {
       const lines = (partial + text).split(/\r?\n/);
       partial = lines.pop();
       for (const l of lines) parser.line(l);
-      if (/ABORTING|runtime error|SUMMARY: /.test(text)) flush();
+      if (/ABORTING|runtime error|SUMMARY: |RUST_BACKTRACE|panicked at/.test(text)) flush();
     },
     onExit() { if (partial) parser.line(partial); flush(); },
   };
@@ -187,6 +187,7 @@ function pick(set, v, fallback) { return set.has(v) ? v : fallback; }
 function sandboxFileFor(lang) { return path.join(sandboxDir(), lang === 'c' ? 'scratch.c' : 'scratch.cpp'); }
 
 async function sandboxRun({ source, compiler, std, lang = 'cpp', tool }) {
+  if (lang === 'rust') return require('./rust').sandboxRun({ source, std, tool });
   const cfg = config.get();
   const dir = sandboxDir();
   const tc = toolchain(lang === 'c' ? 'c' : 'cpp', { compiler, std });
@@ -208,6 +209,7 @@ async function sandboxRun({ source, compiler, std, lang = 'cpp', tool }) {
 // demangled, and each instruction remembers which source line it came from
 // (from the .loc directives -g leaves behind).
 async function sandboxAsm({ source, compiler, std, opt, lang = 'cpp' }) {
+  if (lang === 'rust') return require('./rust').sandboxAsm({ source, std, opt });
   const dir = sandboxDir();
   const tc = toolchain(lang === 'c' ? 'c' : 'cpp', { compiler, std });
   const name = tc.lang === 'c' ? 'scratch-asm.c' : 'scratch-asm.cpp';
@@ -275,6 +277,7 @@ function findUp(start, name, stop) {
 }
 
 async function tidy({ file, checks: only }) {
+  if (/\.rs$/i.test(file || '')) return require('./rust').clippy({ file });
   const cfg = config.get();
   const cmake = require('./cmake');
   const root = cmake.cmakeRoot(file);
@@ -344,6 +347,7 @@ function dosRun({ exe }) {
 // clang-format on its own, for when clangd is off or still starting: it
 // finds the project's .clang-format from the file's folder, like clangd.
 function format({ file, text }) {
+  if (/\.rs$/i.test(file || '')) return require('./rust').format({ file, text });
   return new Promise((resolve, reject) => {
     const child = spawn('clang-format', [`--assume-filename=${file}`, '--fallback-style=LLVM'], { cwd: path.dirname(file) });
     let out = '', err = '';
@@ -362,6 +366,7 @@ function tools() {
   for (const n of names) out[n] = !!which(n);
   out['secret-tool'] = platform.WIN ? true : !!which('secret-tool');   // Windows keeps passwords with DPAPI
   if (platform.WIN) { out.valgrind = false; out.sh = !!which('sh'); }
+  Object.assign(out, require('./rust').tools());
   const dos = dosTools();
   out.owcc = !!dos.owcc; out['dosbox-x'] = !!dos.dosbox;
   return out;
@@ -383,7 +388,7 @@ function init(a) {
   });
   a.register('sandbox.run', sandboxRun);
   a.register('sandbox.asm', sandboxAsm);
-  a.register('sandbox.dir', () => ({ dir: sandboxDir(), files: { c: sandboxFileFor('c'), cpp: sandboxFileFor('cpp') } }));
+  a.register('sandbox.dir', () => ({ dir: sandboxDir(), files: { c: sandboxFileFor('c'), cpp: sandboxFileFor('cpp'), rust: require('./rust').sandboxFile() } }));
   a.register('analyze.tidy', tidy);
   a.register('analyze.cppcheck', cppcheck);
   a.register('dos.status', () => { const t = dosTools(); return { owcc: t.owcc, watcom: t.watcom, dosbox: t.dosbox }; });
@@ -391,4 +396,4 @@ function init(a) {
   a.register('dos.run', dosRun);
 }
 
-module.exports = { init, tidy, execStream, runProgram, buildSingle, debugSingle, valgrindSingle, filterAsm, which, hint, toolchain, CXX_EXT, C_EXT, SOURCE_EXT };
+module.exports = { init, tidy, execStream, runProgram, buildSingle, debugSingle, valgrindSingle, filterAsm, which, hint, toolchain, CXX_EXT, C_EXT, SOURCE_EXT , sandboxDir };

@@ -7,7 +7,7 @@ import { call, on } from './rpc.js';
 import { h, clear, prompt, toast, dialog, debounce, pathText, choices } from './ui.js';
 import { panel, tabs, command, runCommand, status, sidebar } from './layout.js';
 import { activeEditor, openFile, goTo, setFileDiagnostics, createView, languageFor, registerSandboxView, markRuntime } from './editor.js';
-import { language, otherLanguage, langInfo, onLanguageChange } from './lang.js';
+import { language, langInfo, onLanguageChange, ORDER, buildKeys, defaultStd } from './lang.js';
 import { explain, explanationBox, remember } from './explain.js';
 import { setDiagnostics } from '@codemirror/lint';
 import { EditorView, Decoration } from '@codemirror/view';
@@ -55,7 +55,18 @@ function renderProblems() {
         e.stopPropagation();
         const open = li.querySelector(':scope > .explain');
         if (open) { open.remove(); q.setAttribute('aria-expanded', 'false'); return; }
-        li.append(explanationBox(rule, { compact: true }));
+        const box = explanationBox(rule, { compact: true });
+        // a Rust error code: rustc's own long explanation, on request
+        if (p.code && /^E\d{4}$/.test(p.code)) {
+          const more = h('button', { type: 'button', class: 'btn small' }, `rustc --explain ${p.code}`);
+          more.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            try { const r = await call('rust.explain', { code: p.code }); more.replaceWith(h('div', { class: 'md rust-explain' }, h('pre', {}, r.text))); }
+            catch (err) { toast(err.message, 'error'); }
+          });
+          box.append(h('div', { class: 'ex-part' }, more));
+        }
+        li.append(box);
         q.setAttribute('aria-expanded', 'true');
       });
       b.append(q);
@@ -139,7 +150,10 @@ function rememberMistakes(list) {
 export { rememberMistakes };
 
 function finishRun(r, okText, failText) {
-  problems = r.problems || [];
+  // a fast program can report a runtime problem (a panic, a sanitizer
+  // report) before the "it built" answer arrives: keep those
+  const early = problems.filter((p) => p.runtime);
+  problems = (r.problems || []).concat(early.filter((p) => !(r.problems || []).some((q) => q.file === p.file && q.line === p.line && q.message === p.message)));
   rememberMistakes(problems);
   renderProblems();
   const errs = problems.filter((p) => p.severity === 'error').length;
@@ -323,9 +337,31 @@ const SNIPPETS_C = {
   'Fuzz me: a length-prefixed name (Security → Fuzz)': '/* A fuzz target: libFuzzer calls this with generated inputs. The first\n * byte says how long the name is... and nobody checks it against the buffer.\n * Security -> Fuzz this file finds it in seconds; then fix it and fuzz again. */\n#include <stddef.h>\n#include <stdint.h>\n#include <string.h>\n\nstruct record { char name[8]; int id; };\n\nstatic int parse(const uint8_t *data, size_t size, struct record *out) {\n    if (size < 1) return -1;\n    size_t len = data[0];\n    if (len > size - 1) len = size - 1;\n    memcpy(out->name, data + 1, len);   /* len can be up to 255 */\n    out->id = (int)size;\n    return 0;\n}\n\nint LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {\n    struct record r;\n    if (parse(data, size, &r) == 0 && r.name[0] == \'!\') return 1;\n    return 0;\n}\n',
   'Break it: a leak (LeakSanitizer)': '#include <stdio.h>\n#include <stdlib.h>\n\nint main(void) {\n    int *data = malloc(100 * sizeof *data);\n    if (data == NULL) return 1;\n    data[0] = 1;\n    printf("%d\\n", data[0]);\n    return 0;   /* no free: reported when the program ends */\n}\n',
 };
-const snippetsFor = (lang) => (lang === 'c' ? SNIPPETS_C : SNIPPETS);
-const HELLO = { c: 'Hello, C', cpp: 'Hello, C++' };
-const sourceKey = (lang) => (lang === 'c' ? 'sandbox.source.c' : 'sandbox.source');
+// Rust: the basics, then the same kinds of bug as the C and C++ "break it"
+// examples. Rust catches each one: while compiling (the borrow checker), or
+// while running, with a panic that names the line instead of quietly
+// corrupting memory.
+const SNIPPETS_RUST = {
+  "Hello, Rust": "fn main() {\n    let name = \"Josh\";\n    println!(\"Hello, {name}!\");\n}\n",
+  "Ownership and borrowing": "fn length(s: &String) -> usize {   // borrows: doesn't take ownership\n    s.len()\n}\n\nfn shout(s: &mut String) {          // a mutable borrow: may change it\n    s.push('!');\n}\n\nfn main() {\n    let mut ship = String::from(\"Falcon\");\n    let n = length(&ship);           // lend it, get it back\n    shout(&mut ship);\n    let moved = ship;                // ownership moves to `moved`\n    println!(\"{moved} ({n} letters before the !)\");\n    // println!(\"{ship}\");           // won't compile: ship was moved\n}\n",
+  "Structs, enums and match": "#[derive(Debug)]\nenum Side { Light, Dark }\n\n#[derive(Debug)]\nstruct Pilot { name: String, side: Side, kills: u32 }\n\nfn describe(p: &Pilot) -> String {\n    match p.side {                   // match must handle every case\n        Side::Light => format!(\"{} fights for the Rebellion\", p.name),\n        Side::Dark => format!(\"{} serves the Empire\", p.name),\n    }\n}\n\nfn main() {\n    let pilots = vec![\n        Pilot { name: \"Wedge\".into(), side: Side::Light, kills: 7 },\n        Pilot { name: \"Vader\".into(), side: Side::Dark, kills: 9 },\n    ];\n    for p in &pilots {\n        println!(\"{} ({} kills)\", describe(p), p.kills);\n    }\n    println!(\"{:?}\", pilots[0]);\n}\n",
+  "Option, Result and ?": "use std::num::ParseIntError;\n\nfn parse_fuel(text: &str) -> Result<u32, ParseIntError> {\n    let n: u32 = text.trim().parse()?;   // ? hands the error back to the caller\n    Ok(n * 10)\n}\n\nfn find_pilot<'a>(names: &[&'a str], first: char) -> Option<&'a str> {\n    names.iter().copied().find(|n| n.starts_with(first))\n}\n\nfn main() {\n    for input in [\"12\", \"twelve\"] {\n        match parse_fuel(input) {\n            Ok(f) => println!(\"{input}: {f} units of fuel\"),\n            Err(e) => println!(\"{input}: not a number ({e})\"),\n        }\n    }\n    let crew = [\"Han\", \"Leia\", \"Luke\"];\n    if let Some(name) = find_pilot(&crew, 'L') {\n        println!(\"first L: {name}\");\n    }\n    println!(\"first Z: {:?}\", find_pilot(&crew, 'Z'));\n}\n",
+  "Iterators and closures": "fn main() {\n    let scores = vec![42, 7, 99, 7, 13, 64];\n    let limit = 20;\n    let big: Vec<i32> = scores.iter().copied().filter(|&s| s > limit).collect();\n    let total: i32 = scores.iter().sum();\n    let squares: Vec<i32> = scores.iter().map(|s| s * s).take(3).collect();\n    let best = scores.iter().max().unwrap();\n    println!(\"over {limit}: {big:?}\");\n    println!(\"total {total}, best {best}, first squares {squares:?}\");\n}\n",
+  "Vec and HashMap": "use std::collections::HashMap;\n\nfn main() {\n    let mut crew: Vec<&str> = vec![\"Rey\", \"Finn\"];\n    crew.push(\"Poe\");\n    let mut sightings: HashMap<&str, u32> = HashMap::new();\n    for planet in [\"Tatooine\", \"Hoth\", \"Tatooine\", \"Endor\", \"Tatooine\"] {\n        *sightings.entry(planet).or_insert(0) += 1;\n    }\n    println!(\"{} crew: {crew:?}\", crew.len());\n    println!(\"Tatooine seen {} times\", sightings[\"Tatooine\"]);\n    println!(\"Naboo seen {:?} times\", sightings.get(\"Naboo\"));\n}\n",
+  "Traits": "trait Ship {\n    fn name(&self) -> String;\n    fn speed(&self) -> u32;\n    fn describe(&self) -> String {               // a default method\n        format!(\"{} at {} MGLT\", self.name(), self.speed())\n    }\n}\n\nstruct XWing;\nstruct Falcon { tuned: bool }\n\nimpl Ship for XWing {\n    fn name(&self) -> String { \"X-wing\".into() }\n    fn speed(&self) -> u32 { 100 }\n}\nimpl Ship for Falcon {\n    fn name(&self) -> String { \"Millennium Falcon\".into() }\n    fn speed(&self) -> u32 { if self.tuned { 105 } else { 75 } }\n}\n\nfn main() {\n    let fleet: Vec<Box<dyn Ship>> = vec![Box::new(XWing), Box::new(Falcon { tuned: true })];\n    for s in &fleet {\n        println!(\"{}\", s.describe());\n    }\n}\n",
+  "Threads, safely": "use std::sync::{Arc, Mutex};\nuse std::thread;\n\nfn main() {\n    let counter = Arc::new(Mutex::new(0));       // shared, with a lock\n    let mut handles = Vec::new();\n    for _ in 0..4 {\n        let c = Arc::clone(&counter);\n        handles.push(thread::spawn(move || {\n            for _ in 0..1000 {\n                *c.lock().unwrap() += 1;\n            }\n        }));\n    }\n    for h in handles {\n        h.join().unwrap();\n    }\n    println!(\"total: {}\", *counter.lock().unwrap());   // always 4000\n}\n",
+  "Break it: index out of bounds (panic)": "fn main() {\n    let v = vec![10, 20, 30];\n    for i in 0..=v.len() {        // ..= includes v.len(): one too many\n        println!(\"{}\", v[i]);       // Rust checks every index: a panic, not a buffer overflow\n    }\n}\n",
+  "Break it: integer overflow (panic)": "fn main() {\n    let mut fuel: u8 = 250;\n    for _ in 0..10 {\n        fuel += 1;                  // a debug build checks: 255 + 1 panics\n    }\n    println!(\"{fuel}\");\n}\n",
+  "Break it: unwrap on None (panic)": "fn main() {\n    let crew = [\"Han\", \"Leia\"];\n    let pilot = crew.iter().find(|n| n.starts_with('Z'));\n    println!(\"{}\", pilot.unwrap());   // there is no Z: unwrap panics\n}\n",
+  "Break it: use after move (compile error)": "fn main() {\n    let ship = String::from(\"Falcon\");\n    let owner = ship;                 // the String moves to `owner`\n    println!(\"{ship} {owner}\");       // E0382: ship was moved\n}\n",
+  "Break it: changing a Vec while borrowing it (compile error)": "fn main() {\n    let mut v = vec![1, 2, 3];\n    let first = &v[0];                // a borrow of v...\n    v.push(4);                        // ...while v changes: E0502\n    println!(\"{first}\");              // in C++ this is the dangling reference bug\n}\n",
+  "Break it: returning a reference to a local (compile error)": "fn longest() -> &str {             // E0106: a reference to what?\n    let s = String::from(\"a local string\");\n    &s                                  // s dies at the end of this function\n}\n\nfn main() {\n    println!(\"{}\", longest());\n}\n"
+};
+
+const snippetsFor = (lang) => (lang === 'c' ? SNIPPETS_C : lang === 'rust' ? SNIPPETS_RUST : SNIPPETS);
+const HELLO = { c: 'Hello, C', cpp: 'Hello, C++', rust: 'Hello, Rust' };
+const sourceKey = (lang) => (lang === 'c' ? 'sandbox.source.c' : lang === 'rust' ? 'sandbox.source.rust' : 'sandbox.source');
+const FLAGS = { c: '-Wall -Wextra -g -fsanitize=address,undefined', cpp: '-Wall -Wextra -g -fsanitize=address,undefined', rust: 'rustc -g: a debug build, so every index and overflow is checked' };
 
 // asm lines that came from the cursor's source line light up
 const setAsmHot = StateEffect.define();
@@ -345,7 +381,10 @@ const asmHot = StateField.define({
 // scratch file, examples, compiler and standard.
 function openSandbox(snippetName) {
   // an example from the other language switches the language first
-  if (snippetName && !snippetsFor(language())[snippetName] && snippetsFor(otherLanguage())[snippetName]) runCommand('lang.set', otherLanguage());
+  if (snippetName && !snippetsFor(language())[snippetName]) {
+    const owner = ORDER.find((l) => snippetsFor(l)[snippetName]);
+    if (owner) runCommand('lang.set', owner);
+  }
   const t = tabs.open({
     id: 'sandbox', kind: 'sandbox', title: `${langInfo().label} sandbox`, session: { kind: 'sandbox' },
     render(el) {
@@ -364,8 +403,9 @@ function openSandbox(snippetName) {
       memBtn.addEventListener('click', () => runCommand('memviz.open'));
       const fuzzBtn = h('button', { class: 'btn', type: 'button', title: 'Fuzz it with libFuzzer (needs LLVMFuzzerTestOneInput: see the "Fuzz me" example)' }, 'Fuzz');
       fuzzBtn.addEventListener('click', () => runCommand('security.fuzz'));
-      el.append(h('div', { class: 'toolbar' }, this.fileLabel, this.langSwitch, this.pick, this.compiler, this.std, runBtn, vgBtn, memBtn, fuzzBtn, asmBtn, this.opt,
-        h('span', { class: 'muted small grow flags', title: 'Compiled with these flags (Settings → Sandbox flags)' }, '-Wall -Wextra -g -fsanitize=address,undefined')));
+      this.flagsLabel = h('span', { class: 'muted small grow flags', title: 'Compiled with these flags (Settings → Sandbox flags)' }, FLAGS.cpp);
+      this.cOnly = [vgBtn, memBtn, fuzzBtn];   // Valgrind, the memory view and libFuzzer are for C and C++
+      el.append(h('div', { class: 'toolbar' }, this.fileLabel, this.langSwitch, this.pick, this.compiler, this.std, runBtn, vgBtn, memBtn, fuzzBtn, asmBtn, this.opt, this.flagsLabel));
       this.host = h('div', { class: 'editor-host' });
       this.asmHost = h('div', { class: 'editor-host asm-host', hidden: true });
       this.asmLine = h('span', { class: 'asm-line' });
@@ -385,11 +425,15 @@ function openSandbox(snippetName) {
         tabs.setTitle('sandbox', `${info.label} sandbox`);
         this.fileLabel.textContent = `scratch.${info.ext}`;
         clear(this.pick).append(h('option', { value: '' }, 'Load an example...'), ...Object.keys(snips).map((k) => h('option', { value: k }, k)));
-        const ck = lang === 'c' ? 'cCompiler' : 'compiler', sk = lang === 'c' ? 'cStd' : 'std';
+        const keys = buildKeys(lang), ck = keys.compiler, sk = keys.std;
         clear(this.compiler).append(...info.compilers.map((c) => h('option', { value: c, selected: c === this.opts[ck] }, c)));
-        clear(this.std).append(...info.stds.map(([v, label]) => h('option', { value: v, selected: v === this.opts[sk] }, label)));
+        clear(this.std).append(...info.stds.map(([v, label]) => h('option', { value: v, selected: v === String(this.opts[sk]) }, label)));
         if (!info.compilers.includes(this.compiler.value)) this.compiler.value = info.compilers[0];
-        if (!info.stds.some(([v]) => v === this.std.value)) this.std.value = lang === 'c' ? 'c17' : 'c++20';
+        if (!info.stds.some(([v]) => v === this.std.value)) this.std.value = defaultStd(lang);
+        this.compiler.hidden = info.compilers.length < 2;
+        this.std.title = lang === 'rust' ? 'Rust edition' : 'Language standard';
+        for (const b of this.cOnly) b.hidden = lang === 'rust';
+        this.flagsLabel.textContent = FLAGS[lang];
         this.lang = languageFor(`scratch.${info.ext}`);
         const src = snippet ? snips[snippet] : await call('state.get', { key: sourceKey(lang), fallback: snips[HELLO[lang]] });
         if (this.view) { this.view.destroy(); this.view = null; }
@@ -403,8 +447,8 @@ function openSandbox(snippetName) {
         if (this.asmOn) this.refreshAsm(true);
         if (tabs.activeId === 'sandbox') setTimeout(() => this.view && this.view.focus(), 0);
       };
-      this.compiler.addEventListener('change', () => { this.opts[this.langId === 'c' ? 'cCompiler' : 'compiler'] = this.compiler.value; saveOpts(); if (this.asmOn) this.refreshAsm(true); });
-      this.std.addEventListener('change', () => { this.opts[this.langId === 'c' ? 'cStd' : 'std'] = this.std.value; saveOpts(); if (this.asmOn) this.refreshAsm(true); });
+      this.compiler.addEventListener('change', () => { const k = buildKeys(this.langId).compiler; if (k) this.opts[k] = this.compiler.value; saveOpts(); if (this.asmOn) this.refreshAsm(true); });
+      this.std.addEventListener('change', () => { this.opts[buildKeys(this.langId).std] = this.std.value; saveOpts(); if (this.asmOn) this.refreshAsm(true); });
       this.opt.addEventListener('change', () => { this.opts.opt = this.opt.value; saveOpts(); if (this.asmOn) this.refreshAsm(true); });
       this.pick.addEventListener('change', () => {
         if (!this.pick.value || !this.view) return;
@@ -447,7 +491,7 @@ function openSandbox(snippetName) {
       };
       this.unlisten = onLanguageChange((l) => { if (l !== this.langId) this.useLang(l); });
       this.ready = call('state.get', { key: 'sandbox.opts', fallback: {} }).then(async (o) => {
-        this.opts = { compiler: 'g++', std: 'c++20', cCompiler: 'gcc', cStd: 'c17', opt: '-O1', ...o };
+        this.opts = { compiler: 'g++', std: 'c++20', cCompiler: 'gcc', cStd: 'c17', rustEdition: '2024', opt: '-O1', ...o };
         this.opt.value = this.opts.opt;
         await this.useLang(language(), snippetName);
         if (o.asm) this.toggleAsm(true);
@@ -470,9 +514,9 @@ export async function sandboxWith(code, lang) {
   return t;
 }
 
-// The same C / C++ switch the main toolbar has
+// The same C / C++ / Rust switch the main toolbar has
 function langSwitch() {
-  const box = choices([['c', 'C'], ['cpp', 'C++']], language(), { label: 'Language' });
+  const box = choices(ORDER.map((l) => [l, langInfo(l).label]), language(), { label: 'Language' });
   box.classList.add('lang-switch');
   box.addEventListener('change', () => runCommand('lang.set', box.value));
   const off = onLanguageChange((l) => { if (!box.isConnected) return off(); box.set(l); });
@@ -521,7 +565,7 @@ export function initBuild() {
   on('build.start', (d) => appendOutput(`$ ${d.command}\n`));
   on('build.output', (d) => appendOutput(d.text));
   on('build.done', (d) => appendOutput(`\n[exit ${d.code}]\n`));
-  call('sandbox.dir').then((d) => { sandboxFiles.add(d.files.cpp); sandboxFiles.add(d.files.c); }).catch(() => {});
+  call('sandbox.dir').then((d) => { sandboxFiles.add(d.files.cpp); sandboxFiles.add(d.files.c); if (d.files.rust) sandboxFiles.add(d.files.rust); }).catch(() => {});
 
   command('build.build', 'Build', ['F9'], () => build());
   command('build.configure', 'CMake: configure', ['Alt+F9'], () => configure(false));

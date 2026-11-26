@@ -137,6 +137,12 @@ function readModel(root) {
 }
 
 async function targets({ root, file }) {
+  if (cargoFor({ file, root })) {
+    const r = root || require('./rust').cargoRoot(file);
+    const m = await require('./rust').metadata(r);
+    const bins = m ? m.packages.flatMap((p) => p.bins.map((x) => ({ name: x.name, type: 'executable', kind: 'program', dirRel: path.relative(r, p.dir) || '.', sources: [x.src] }))) : [];
+    return { root: r, configured: true, cargo: true, targets: bins };
+  }
   root = root || cmakeRoot(file);
   if (!root) return { root: null, configured: false, targets: [] };
   if (!isConfigured(root)) return { root, configured: false, targets: [] };
@@ -158,10 +164,29 @@ function targetFor(m, file) {
   return c.sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name))[0];
 }
 
+// Rust instead of CMake? A .rs file always is (its Cargo project, or the
+// lone file); a folder is when it has a Cargo.toml and no CMake project
+// closer to it. Returns the Cargo root (or the file's folder), else null.
+function rustFor({ file, dir, root }) {
+  const rust = require('./rust');
+  if (file && rust.RS.test(file)) return rust.cargoRoot(file) || path.dirname(file);
+  if (file && /(^|[\\/])Cargo\.toml$/.test(file)) return path.dirname(file);
+  const d = root || dir || (file ? path.dirname(file) : null);
+  if (!d) return null;
+  const cr = rust.cargoRoot(d);
+  if (!cr) return null;
+  const cm = cmakeRoot(file || d);
+  return !cm || cm.length < cr.length ? cr : null;
+}
+// The same, but only a real Cargo project (tests, targets, the Tests sidebar)
+function cargoFor(args) { const r = rustFor(args); return r && require('./rust').cargoRoot(r) === r ? r : null; }
+
 // ------------------------------------------------------------------ build
 // F9: CMake when the file (or the workspace) is in a CMake project,
 // otherwise the one file with g++.
 async function build({ file, dir, target, root }) {
+  const rs = rustFor({ file, dir, root });
+  if (rs) return require('./rust').build({ file, dir: dir || root, target });
   root = root || cmakeRoot(file || dir);
   if (!root) return buildSingle({ file });
   const pre = await ensureConfigured(root);
@@ -189,6 +214,7 @@ async function resolveTarget({ file, root, target }) {
 // Ctrl+F9: build the program this file is part of, then run it in a
 // terminal (it can read std::cin there) from the project folder.
 async function run({ file, root, target, args = '', tool }) {
+  if (rustFor({ file, root })) return require('./rust').run({ file, dir: root, target, args });
   const rt = await resolveTarget({ file, root, target });
   if (!rt.root) {
     if (!file || !SOURCE_EXT.test(file)) throw new Error('Open a .c or .cpp file (or a file in a CMake project) first');
@@ -219,6 +245,7 @@ async function run({ file, root, target, args = '', tool }) {
 // LeakSanitizer can't work under a debugger, so it's turned off there
 // (note 4.03: the ASan-under-gdb conflict); ASan itself stays on.
 async function debug({ file, line, root, target, args = '' }) {
+  if (rustFor({ file, root })) return require('./rust').debug({ file, line, target, args });
   const rt = await resolveTarget({ file, root, target });
   if (!rt.root) {
     if (file && SOURCE_EXT.test(file)) return debugSingle({ file, line, args });
@@ -236,6 +263,7 @@ async function debug({ file, line, root, target, args = '' }) {
 
 // ------------------------------------------------------------------ CTest
 async function ctestList({ root, file }) {
+  if (cargoFor({ file, root })) return require('./rust').testList({ root: root || require('./rust').cargoRoot(file) });
   root = root || cmakeRoot(file);
   if (!root || !isConfigured(root)) return { root, tests: [], configured: false };
   const r = await execStream({ cmd: 'ctest', args: ['--test-dir', buildDir(root), '--show-only=json-v1'], cwd: root, title: 'ctest list', quiet: true });
@@ -254,6 +282,7 @@ async function ctestList({ root, file }) {
 // Runs every test, or the ones picked by number (index in ctestList),
 // telling the window about each result as it lands.
 async function ctestRun({ root, file, indexes, buildFirst = true }) {
+  if (cargoFor({ file, root })) return require('./rust').testRun({ root: root || require('./rust').cargoRoot(file), indexes });
   root = root || cmakeRoot(file);
   if (!root) throw new Error('No CMake project here');
   if (buildFirst) {
@@ -278,6 +307,7 @@ async function ctestRun({ root, file, indexes, buildFirst = true }) {
 
 // The TEST_CASE (or SECTION-less SCENARIO) a test came from
 async function ctestLocate({ root, name, target }) {
+  if (cargoFor({ root })) return require('./rust').testLocate({ root, name });
   const m = readModel(root);
   if (!m) return null;
   const want = name.replace(/^Scenario: /, '');
@@ -321,6 +351,7 @@ function projectsFrom(m) {
 function file2dir(f) { return path.dirname(f); }
 
 async function projectsList({ root, file }) {
+  if (cargoFor({ file, root })) return { root, projects: [] };
   const t = await targets({ root, file });
   if (!t.configured) return { root: t.root, configured: false, projects: [] };
   return { root: t.root, configured: true, projects: projectsFrom(readModel(t.root)) };
@@ -345,10 +376,12 @@ async function projectRun({ root, id, testName }) {
 function init(a) {
   api = a;
   a.register('cmake.root', ({ file, dir }) => {
+    const rs = cargoFor({ file, dir });
+    if (rs) return { root: rs, build: path.join(rs, 'target'), configured: true, kind: 'cargo' };
     const root = cmakeRoot(file || dir);
     return { root, build: root ? buildDir(root) : null, configured: root ? isConfigured(root) : false };
   });
-  a.register('cmake.configure', ({ root, file, fresh }) => configure({ root: root || cmakeRoot(file), fresh }));
+  a.register('cmake.configure', ({ root, file, fresh }) => (cargoFor({ file, root }) ? { kind: 'configure', code: 0, problems: [], cargo: true } : configure({ root: root || cmakeRoot(file), fresh })));
   a.register('cmake.targets', targets);
   a.register('cmake.build', build);
   a.register('cmake.run', run);

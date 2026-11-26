@@ -88,7 +88,20 @@ function installLine(pkgs) {
 }
 
 // "sudo apt install clangd", for an error message
+// Rust comes from rustup everywhere (Ubuntu's own rustc is too old for the
+// 2024 edition); its extra tools are rustup components
+const RUST_TOOLS = { rustc: null, cargo: null, 'rust-gdb': null, 'rust-analyzer': 'rust-analyzer', 'clippy-driver': 'clippy', rustfmt: 'rustfmt' };
+const OPENBSD_RUST = { rustc: 'rust', cargo: 'rust', 'rust-gdb': 'rust', 'rust-analyzer': 'rust-analyzer', 'clippy-driver': 'rust-clippy', rustfmt: 'rust-rustfmt' };
+function rustHint(tool) {
+  if (FAMILY === 'openbsd') return `doas pkg_add ${OPENBSD_RUST[tool]}`;
+  if (FAMILY === 'windows') return 'run "Install on Windows (no WSL).cmd" again: it installs Rust with rustup';
+  const comp = RUST_TOOLS[tool];
+  if (comp && require('./platform').onPath('rustup')) return `rustup component add ${comp}`;
+  return 'install Rust with rustup: bash scripts/setup-ubuntu.sh --with-rust (or see rustup.rs)';
+}
+
 function installHint(tool) {
+  if (tool in RUST_TOOLS) return rustHint(tool);
   if (FAMILY === 'windows') {
     if (tool === 'valgrind') return 'Valgrind doesn\'t exist for Windows: the sanitizers find the same bugs (or use the WSL version)';
     if (['dosbox-x', 'owcc', 'wslview', 'secret-tool', 'gio', 'man'].includes(tool)) return 'not part of the Windows version';

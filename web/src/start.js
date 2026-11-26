@@ -11,7 +11,7 @@ import { language, langInfo, toolchainLabel, onLanguageChange } from './lang.js'
 import { whereWasI, whereBox } from './comfort.js';
 
 const ACTIONS = [
-  ['project.new', 'New project', 'A CMake project in C or C++, with tests if you like'],
+  ['project.new', 'New project', 'A CMake project in C or C++, or a Cargo project in Rust, with tests if you like'],
   ['file.new', 'New file', 'A program, a source file, a header or a class'],
   ['file.quickOpen', 'Open a file', 'From the folders in Files'],
   ['file.openFolder', 'Open a folder', 'Make it the workspace'],
@@ -39,7 +39,7 @@ async function renderStart(el) {
     h('span', {}, d.split('/').pop() || d), h('span', { class: 'muted grow path' }, pathText(d)));
   const box = h('div', { class: 'start' },
     h('div', { class: 'start-head' },
-      h('h1', {}, 'C / C++ Workbench'),
+      h('h1', {}, 'MHDE: C, C++ and Rust'),
       h('div', { class: 'start-lang' }, h('span', { class: 'muted' }, 'Working in'), langSwitch(), h('span', { class: 'muted' }, toolchainLabel(l)), h('span', { class: 'kbd' }, 'Ctrl+Shift+J'))),
     (where.file || where.ex || where.next) ? h('section', { class: 'start-col start-where' }, h('h2', {}, 'Where you were'), whereBox(where)) : null,
     h('div', { class: 'start-cols' },
@@ -58,7 +58,7 @@ async function renderStart(el) {
         h('h2', {}, 'Learn the app'),
         h('button', { type: 'button', class: 'list-row', onclick: () => runCommand('help.welcome') }, h('span', {}, 'Start here: the tour, step by step')),
         h('button', { type: 'button', class: 'list-row', onclick: () => runCommand('help.keys') }, h('span', {}, 'Every key'), h('span', { class: 'kbd' }, keyOf('help.keys'))),
-        h('p', { class: 'muted small' }, `New files, projects, the sandbox and the judge start in ${langInfo(l).label}. A .c file is always C and a .cpp file always C++; a .h header follows the switch.`))));
+        h('p', { class: 'muted small' }, `New files, projects, the sandbox and the judge start in ${langInfo(l).label}. A .c file is always C, a .cpp file always C++, and a .rs file always Rust. A .h header follows the switch.`))));
   clear(el).append(box);
 }
 

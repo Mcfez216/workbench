@@ -443,6 +443,31 @@ async function main() {
       fs.rmSync(path.dirname(daily), { recursive: true, force: true });
     });
 
+    await step('Rust: the switch has three languages; the Rust sandbox runs, a panic turns its line red, a borrow error explains itself', async () => {
+      const sw = page.locator('.toolbar-main .lang-switch');
+      assert.deepStrictEqual((await sw.locator('.choice').allInnerTexts()).map((t) => t.trim()), ['C', 'C++', 'Rust']);
+      await sw.locator('.choice', { hasText: 'Rust' }).click();
+      await page.waitForFunction(() => /Rust: Edition 2024/.test(document.querySelector('.statusline').innerText));
+      await page.keyboard.press('F4');
+      await page.waitForSelector('.tab-page.active .sb-file:text("scratch.rs")');
+      assert.ok(await page.locator('.tab-page.active .toolbar button:has-text("Valgrind")').isHidden(), 'no Valgrind for Rust');
+      await page.locator('.tab-page.active select[title="Load an example"]').selectOption('Break it: index out of bounds (panic)');
+      await page.keyboard.press('Control+F9');
+      await page.waitForSelector('.tab-page.active .cm-runtimeLine', { timeout: 30000 });
+      await page.waitForFunction(() => /index out of bounds/.test(document.querySelector('.statusline').innerText), null, { timeout: 30000 });
+      await shot('17-rust-panic');
+      await page.locator('.tab-page.active select[title="Load an example"]').selectOption('Break it: use after move (compile error)');
+      await page.keyboard.press('Control+F9');
+      await page.waitForSelector('.problems li:has-text("borrow of moved value")', { timeout: 30000 });
+      await page.locator('.problems li:has-text("borrow of moved value") .explain-toggle').click();
+      await page.waitForSelector('.problems .explain .ex-title:has-text("Using a value after it moved")');
+      await page.locator('.problems button:has-text("rustc --explain E0382")').click();
+      await page.waitForSelector('.rust-explain');
+      await page.keyboard.press('Control+W');
+      await sw.locator('.choice', { hasText: /^C\+\+$/ }).click();
+      await page.waitForFunction(() => /C\+\+: /.test(document.querySelector('.statusline').innerText));
+    });
+
     await step('the palette runs anything by name; New file makes a C program; the outline lists it', async () => {
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');
@@ -478,7 +503,7 @@ async function main() {
 
     await step('an exercise: F7 says what came back, fix it, the next step opens', async () => {
       await page.locator('.toolbar-main .tb-btn', { hasText: 'Learn' }).click();
-      await page.locator('.side-view:not([hidden]) .ex-row', { hasText: 'First functions' }).click();
+      await page.locator('.side-view:not([hidden]) .ex-row', { has: page.locator('.name', { hasText: /^First functions$/ }) }).click();
       await page.waitForSelector('.tab-page[data-kind="exercise"] .ex-step.current');
       await page.waitForSelector('.tab.active:has-text("first.c")');
       // (the backend tests used this exercise too: start it from a wrong add, whatever they left)

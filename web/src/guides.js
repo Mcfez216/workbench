@@ -192,10 +192,10 @@ async function onPageClick(t, e) {
       pasteToTerminal(cmds);
     } else if (a.dataset.act === 'sandbox') {
       // a ```c block goes to the C sandbox, ```cpp to the C++ one; unlabelled ones guess from the includes
-      const lang = b.lang === 'c' || (!b.lang && /#include\s*<(stdio|stdlib|string)\.h>/.test(b.code) && !/\bstd::/.test(b.code)) ? 'c' : 'cpp';
+      const lang = ['rust', 'rs'].includes(b.lang) ? 'rust' : b.lang === 'c' || (!b.lang && /#include\s*<(stdio|stdlib|string)\.h>/.test(b.code) && !/\bstd::/.test(b.code)) ? 'c' : 'cpp';
       const { sandboxWith } = await import('./build.js');
       await sandboxWith(b.code, lang);
-      toast(`In the ${lang === 'c' ? 'C' : 'C++'} sandbox. Ctrl+F9 to run it.`, 'ok');
+      toast(`In the ${lang === 'c' ? 'C' : lang === 'rust' ? 'Rust' : 'C++'} sandbox. Ctrl+F9 to run it.`, 'ok');
     }
   } else if (a.classList.contains('external')) {
     // Electron opens these in your browser; in a browser tab, a new tab

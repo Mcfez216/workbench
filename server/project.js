@@ -25,6 +25,10 @@ const guard = (file) => path.basename(file).toUpperCase().replace(/[^A-Z0-9]+/g,
 function fileTemplate(kind, file, lang) {
   const base = path.basename(file).replace(/\.[^.]+$/, '');
   const c = lang === 'c';
+  if (lang === 'rust' || /\.rs$/.test(file)) {
+    if (kind === 'main') return `fn main() {\n    println!("Hello from ${base}!");\n}\n`;
+    return `//! ${base}\n\n`;
+  }
   switch (kind) {
     case 'main':
       return c
@@ -61,7 +65,7 @@ function pairTemplates(name, dir, lang) {
 
 async function newFile({ file, kind = 'source', lang }) {
   const f = abs(file);
-  const l = lang || (/\.c$/.test(f) ? 'c' : /\.h$/.test(f) ? config.get().language : 'cpp');
+  const l = lang || (/\.c$/.test(f) ? 'c' : /\.rs$/.test(f) ? 'rust' : /\.h$/.test(f) ? config.get().language : 'cpp');
   if (fs.existsSync(f)) throw new Error(`${path.basename(f)} already exists`);
   await fsp.mkdir(path.dirname(f), { recursive: true });
   await fsp.writeFile(f, fileTemplate(kind, f, l), { flag: 'wx' });
@@ -75,6 +79,30 @@ async function newPair({ dir, name, lang }) {
   await fsp.mkdir(d, { recursive: true });
   for (const [f, text] of files) await fsp.writeFile(f, text, { flag: 'wx' });
   return { files: files.map(([f]) => f) };
+}
+
+// ------------------------------------------------------------------ new Cargo project
+// The same as cargo new, written out here so it works offline and says
+// what each file is for. library: lib.rs with tests, and a small program
+// that uses it.
+function cargoFiles({ name, kind }) {
+  const pkg = String(name).trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!/^[a-z_][a-z0-9_-]*$/.test(pkg)) throw new Error(`"${name}" can't be a Rust package name: use small letters, digits, - and _`);
+  const crate = pkg.replace(/-/g, '_');
+  const edition = String(config.get().build.rustEdition || '2024');
+  const files = {
+    'Cargo.toml': `[package]\nname = "${pkg}"\nversion = "0.1.0"\nedition = "${edition}"\n\n[dependencies]\n`,
+    '.gitignore': '/target\n',
+    'rustfmt.toml': 'max_width = 100\n',
+  };
+  if (kind === 'library') {
+    files['src/lib.rs'] = `//! ${pkg}: a library. Its tests are at the bottom of this file (F7 runs them).\n\n/// Adds two numbers.\npub fn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn adds_two_numbers() {\n        assert_eq!(add(2, 3), 5);\n    }\n\n    #[test]\n    fn adds_negative_numbers() {\n        assert_eq!(add(-2, -3), -5);\n    }\n}\n`;
+    files['src/main.rs'] = `fn main() {\n    println!("2 + 3 = {}", ${crate}::add(2, 3));\n}\n`;
+  } else {
+    files['src/main.rs'] = `fn main() {\n    println!("Hello from ${pkg}!");\n}\n`;
+  }
+  files['README.md'] = `# ${pkg}\n\nA Rust project (edition ${edition}). In MHDE: F9 builds, Ctrl+F9 runs${kind === 'library' ? ', F7 runs the tests' : ''}, Ctrl+Shift+D debugs, Ctrl+Shift+K asks clippy.\n\nFrom a terminal:\n\n\`\`\`bash\ncargo build\ncargo run\n${kind === 'library' ? 'cargo test\n' : ''}\`\`\`\n`;
+  return { pkg, files };
 }
 
 // ------------------------------------------------------------------ new project
@@ -185,7 +213,8 @@ async function createProject({ dir, name, lang = 'cpp', kind = 'console', git = 
   const id = ident(name);
   const root = path.join(parent, id);
   if (fs.existsSync(root) && fs.readdirSync(root).length) throw new Error(`${root} already exists and isn't empty`);
-  const files = projectFiles({ name: id, lang: lang === 'c' ? 'c' : 'cpp', kind: kind === 'library' ? 'library' : 'console' });
+  const rust = lang === 'rust';
+  const files = rust ? cargoFiles({ name, kind }).files : projectFiles({ name: id, lang: lang === 'c' ? 'c' : 'cpp', kind: kind === 'library' ? 'library' : 'console' });
   for (const [rel, text] of Object.entries(files)) {
     const f = path.join(root, rel);
     await fsp.mkdir(path.dirname(f), { recursive: true });
@@ -195,7 +224,7 @@ async function createProject({ dir, name, lang = 'cpp', kind = 'console', git = 
   if (git) {
     gitInit = await new Promise((resolve) => execFile('git', ['init', '-q'], { cwd: root }, (err) => resolve(!err)));
   }
-  const main = path.join(root, 'src', `main.${lang === 'c' ? 'c' : 'cpp'}`);
+  const main = path.join(root, 'src', rust ? (kind === 'library' ? 'lib.rs' : 'main.rs') : `main.${lang === 'c' ? 'c' : 'cpp'}`);
   return { root, main, files: Object.keys(files), git: gitInit };
 }
 

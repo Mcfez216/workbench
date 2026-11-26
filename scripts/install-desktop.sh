@@ -24,7 +24,7 @@ cat > "$APPS/cpp-path-workbench.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=McFez's HomeBrew Development Environment (MHDE)
-Comment=Editor, CMake, tests, gdb, sandbox, judge, terminal, git and guides for the C++ Path
+Comment=C, C++ and Rust: editor, CMake and Cargo, tests, gdb, sandbox, judge, terminal, git and guides
 Exec=sh -c 'cd "$DIR" && PATH="$NODE_BIN:/usr/local/bin:\$PATH" exec npm start'
 Icon=cpp-path-workbench
 Terminal=false

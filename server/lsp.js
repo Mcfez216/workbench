@@ -12,9 +12,15 @@ const config = require('./config');
 let api;
 const servers = new Map();   // root -> {proc, buf, session}
 
+// rust-analyzer for Rust (one per Cargo project, or per lone file's folder)
+const RUST = /\.rs$/i;
+const keyOf = (root, server) => (server === 'rust-analyzer' ? `${root}|rust` : root);
+function serverFor(file) { return RUST.test(file || '') ? 'rust-analyzer' : 'clangd'; }
+
 // A project root is the nearest folder with a compile database or flags file,
-// else the git root, else the file's own folder.
+// else the git root, else the file's own folder. For Rust: the Cargo project.
 function rootFor(file) {
+  if (RUST.test(file)) return require('./rust').cargoRoot(file) || path.dirname(file);
   const cm = require('./cmake').cmakeRoot(file);
   if (cm) return cm;
   let d = path.dirname(file);
@@ -29,20 +35,23 @@ function rootFor(file) {
 // Each window load is a session with its own clangd conversation (clangd
 // can only be initialized once). A new session for the same root (you
 // reloaded the window) replaces the old one.
-function start({ root, session = '' }) {
-  const old = servers.get(root);
+function start({ root, session = '', server = 'clangd' }) {
+  const key = keyOf(root, server);
+  const old = servers.get(key);
   if (old && old.session === session) return { root, running: true };
-  if (old) { servers.delete(root); old.proc.kill(); }
+  if (old) { servers.delete(key); old.proc.kill(); }
+  const rust = server === 'rust-analyzer';
   const c = config.get().clangd;
-  if (!c.enabled) throw new Error('clangd is turned off in Settings');
-  const proc = spawn(c.command || 'clangd', c.args || [], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
-  const s = { proc, buf: Buffer.alloc(0), session };
-  servers.set(root, s);
+  if (!rust && !c.enabled) throw new Error('clangd is turned off in Settings');
+  const cmd = rust ? 'rust-analyzer' : c.command || 'clangd';
+  const proc = spawn(cmd, rust ? [] : c.args || [], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+  const s = { proc, buf: Buffer.alloc(0), session, server };
+  servers.set(key, s);
   // Answer once clangd has really started (or couldn't): a window that
   // thinks it's talking to a clangd that isn't installed waits on it forever.
   const started = new Promise((resolve, reject) => {
     proc.once('spawn', () => resolve({ root, running: true }));
-    proc.once('error', (err) => reject(new Error(err.code === 'ENOENT' ? `clangd is not installed (${require('./distro').installHint('clangd')}); completion and errors-as-you-type are off` : err.message)));
+    proc.once('error', (err) => reject(new Error(err.code === 'ENOENT' ? `${cmd} is not installed (${require('./distro').installHint(cmd)}); completion and errors-as-you-type are off` : err.message)));
   });
   proc.stdout.on('data', (chunk) => {
     s.buf = Buffer.concat([s.buf, chunk]);
@@ -55,21 +64,21 @@ function start({ root, session = '' }) {
       if (s.buf.length < sep + 4 + len) break;
       const body = s.buf.slice(sep + 4, sep + 4 + len).toString('utf8');
       s.buf = s.buf.slice(sep + 4 + len);
-      api.broadcast('lsp.message', { root, session, message: body });
+      api.broadcast('lsp.message', { root, session, server, message: body });
     }
   });
   proc.stderr.on('data', () => { /* clangd logs a lot; ignore */ });
-  const gone = () => { if (servers.get(root) === s) servers.delete(root); };
+  const gone = () => { if (servers.get(key) === s) servers.delete(key); };
   proc.on('error', (err) => {
     gone();
-    api.broadcast('lsp.exit', { root, session, error: err.code === 'ENOENT' ? `clangd is not installed (${require('./distro').installHint('clangd')})` : err.message });
+    api.broadcast('lsp.exit', { root, session, server, error: err.code === 'ENOENT' ? `${cmd} is not installed (${require('./distro').installHint(cmd)})` : err.message });
   });
-  proc.on('close', (code) => { gone(); api.broadcast('lsp.exit', { root, session, code }); });
+  proc.on('close', (code) => { gone(); api.broadcast('lsp.exit', { root, session, server, code }); });
   return started;
 }
 
-function send({ root, session = '', message }) {
-  const s = servers.get(root);
+function send({ root, session = '', server = 'clangd', message }) {
+  const s = servers.get(keyOf(root, server));
   if (!s || s.session !== session) return false;
   const body = Buffer.from(message, 'utf8');
   s.proc.stdin.write(`Content-Length: ${body.length}\r\n\r\n`);
@@ -77,15 +86,16 @@ function send({ root, session = '', message }) {
   return true;
 }
 
-function stop({ root }) {
-  const s = servers.get(root);
-  if (s) { s.proc.kill(); servers.delete(root); }
+function stop({ root, server = 'clangd' }) {
+  const key = keyOf(root, server);
+  const s = servers.get(key);
+  if (s) { s.proc.kill(); servers.delete(key); }
   return true;
 }
 
 function init(a) {
   api = a;
-  a.register('lsp.root', ({ file }) => ({ root: rootFor(file) }));
+  a.register('lsp.root', ({ file }) => ({ root: rootFor(file), server: serverFor(file) }));
   a.register('lsp.start', start);
   a.register('lsp.send', send);
   a.register('lsp.stop', stop);
