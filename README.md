@@ -58,13 +58,17 @@ retro look.
 
 ## The course vaults
 
-Two Obsidian vaults come with the app, in `vaults/`: **CPP-Path** (C++) and
+Three Obsidian vaults come with the app, in `vaults/`: **CPP-Path** (C++) and
 **C-Path** (C), a phase-by-phase course each, with runnable examples, check
 yourself questions (they become flashcards), cheat sheets, phase gates and a
-light Star Wars theme. Open either folder in Obsidian, or just start the app:
+light Star Wars theme; and **CCNA-Path**, for the Cisco CCNA 200-301 exam,
+with a Cisco Packet Tracer lab in every note, the exam topics as a checklist,
+IOS, subnetting and port cheat sheets, and five capstone labs. Open any of
+them in Obsidian, or just start the app:
 
-- On the first start, if you have no vault of your own, the app copies both
-  to `~/Notes/CPP-Path` and `~/Notes/C-Path` and shows them in Guides. You
+- On the first start, if you have no vault of your own, the app copies them
+  to `~/Notes/CPP-Path`, `~/Notes/C-Path` and `~/Notes/CCNA-Path` and shows
+  them in Guides. You
   work in that copy (edit notes, tick boxes, daily notes); the app's own
   `vaults/` is never touched, so updating the app can't overwrite your notes.
 - **Guides → Get new course notes** copies in notes added by an update.
