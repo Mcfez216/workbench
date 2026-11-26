@@ -22,7 +22,7 @@ app.on('browser-window-created', (_e, win) => {
       for (let i = 0; i < 50 && !(await js('!!document.querySelector(".menubar-item")')); i++) await wait(200);
       check(await js('!!document.querySelector(".menubar-item")'), 'the window loads the app from the local backend');
       check(await js('typeof require === "undefined" && typeof process === "undefined"'), 'the page has no Node access');
-      check(win.getTitle() === 'C++ Path Workbench', `the window is titled C++ Path Workbench (${win.getTitle()})`);
+      check(win.getTitle() === "McFez's HomeBrew Development Environment (MHDE)", `the window is titled MHDE (${win.getTitle()})`);
       // let the last session's tabs finish coming back
       let n = -1;
       for (let i = 0; i < 30; i++) { await wait(400); const m = await js('document.querySelectorAll(".tab").length'); if (m === n) break; n = m; }

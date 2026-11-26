@@ -1,4 +1,4 @@
-' C++ Path Workbench: starts the app inside WSL without a console window.
+' MHDE (McFez's HomeBrew Development Environment): starts the app inside WSL without a console window.
 ' The Start menu and desktop shortcuts run this (wscript.exe Launch.vbs).
 ' launcher.ini, next to it, says which WSL distro and where the app is;
 ' Install.ps1 writes it.
@@ -33,8 +33,8 @@ If WScript.Arguments.Count > 0 Then mode = LCase(WScript.Arguments(0))
 If mode <> "window" And mode <> "browser" Then mode = "auto"
 
 If appDir = "" Then
-    MsgBox "C++ Path Workbench isn't set up yet." & vbCrLf & vbCrLf & _
-        "Run 'Install on Windows.cmd' from the app's folder.", vbExclamation, "C++ Path Workbench"
+    MsgBox "MHDE isn't set up yet." & vbCrLf & vbCrLf & _
+        "Run 'Install on Windows.cmd' from the app's folder.", vbExclamation, "MHDE"
     WScript.Quit 1
 End If
 

@@ -66,7 +66,7 @@ async function connect() {
   const opts = {
     host: c.host, port: Number(c.port), tls: !!c.tls, rejectUnauthorized: true,
     nick: c.nick, username: c.username || c.nick, gecos: c.realname || c.nick,
-    auto_reconnect: true, auto_reconnect_max_retries: 10, version: 'C++ Path Workbench',
+    auto_reconnect: true, auto_reconnect_max_retries: 10, version: 'MHDE',
   };
   let how = '';
   if (c.login === 'sasl') {
@@ -154,7 +154,7 @@ async function connect() {
 }
 
 function disconnect() {
-  if (client) { try { client.quit('C++ Path Workbench'); } catch (e) { /* already gone */ } client.removeAllListeners(); client = null; }
+  if (client) { try { client.quit('MHDE'); } catch (e) { /* already gone */ } client.removeAllListeners(); client = null; }
   setStatus({ state: 'disconnected' });
   return status;
 }
@@ -212,7 +212,7 @@ function init(a) {
     const c = config.get().irc;
     if (!c.nick && !c.account) throw new Error('Set your nick (or account) first');
     if (!password) throw new Error('Type the password');
-    await secrets.store(KEYRING, keyringUser(c), password, `IRC ${keyringUser(c)} (C++ Path Workbench)`);
+    await secrets.store(KEYRING, keyringUser(c), password, `IRC ${keyringUser(c)} (MHDE)`);
     return { user: keyringUser(c) };
   });
   a.register('irc.hasPassword', async () => ({ user: keyringUser(config.get().irc), stored: !!(await secrets.lookup(KEYRING, keyringUser(config.get().irc))) }));

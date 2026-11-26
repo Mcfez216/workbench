@@ -184,7 +184,7 @@ async function copyDir({ from, to }) {
   // CMake's build/ and clangd's index don't belong in git
   let gitignore = false;
   if (!fs.existsSync(path.join(b, '.gitignore'))) {
-    await fsp.writeFile(path.join(b, '.gitignore'), '# made by C++ Path Workbench when it copied the vault\'s code\nbuild/\n.cache/\n');
+    await fsp.writeFile(path.join(b, '.gitignore'), '# made by MHDE when it copied the vault\'s code\nbuild/\n.cache/\n');
     gitignore = true;
   }
   return { to: b, copied, kept, gitignore };

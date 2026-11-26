@@ -124,7 +124,7 @@ proxy_setup() {
 	if [ -n "$proxy" ] && command -v git >/dev/null 2>&1 && [ -z "$(git config --global --get http.proxy 2>/dev/null)" ]; then git config --global http.proxy "$proxy"; fi
 	mkdir -p "$(dirname "$CPW_PROXY_ENV")"
 	{
-		echo "# Written by C++ Path Workbench's setup (scripts/wsl-proxy.sh). Delete this file to stop using the proxy."
+		echo "# Written by MHDE's setup (scripts/wsl-proxy.sh). Delete this file to stop using the proxy."
 		if [ -n "$proxy" ]; then
 			for v in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY GLOBAL_AGENT_HTTP_PROXY GLOBAL_AGENT_HTTPS_PROXY; do printf "export %s='%s'\n" "$v" "$proxy"; done
 			printf "export no_proxy='%s' NO_PROXY='%s' GLOBAL_AGENT_NO_PROXY='%s'\n" "$noproxy" "$noproxy" "$noproxy"
@@ -133,7 +133,7 @@ proxy_setup() {
 		[ -n "$cert_note" ] && echo "export NODE_EXTRA_CA_CERTS='$bundle'"
 	} >"$CPW_PROXY_ENV"
 	chmod 600 "$CPW_PROXY_ENV"
-	local line="[ -f \"$CPW_PROXY_ENV\" ] && . \"$CPW_PROXY_ENV\"  # C++ Path Workbench: the company proxy"
+	local line="[ -f \"$CPW_PROXY_ENV\" ] && . \"$CPW_PROXY_ENV\"  # MHDE: the company proxy"
 	if ! grep -qF "$CPW_PROXY_ENV" "$HOME/.profile" 2>/dev/null; then printf '\n%s\n' "$line" >>"$HOME/.profile"; fi
 	echo "Saved for later (your terminals and the app): $CPW_PROXY_ENV"
 }

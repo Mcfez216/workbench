@@ -42,7 +42,7 @@ async function openWelcome() {
       const done = new Set(await call('state.get', { key: 'welcome.done', fallback: [] }));
       const save = () => call('state.set', { key: 'welcome.done', value: [...done] });
       page.append(h('div', { class: 'md' },
-        h('h1', {}, 'C++ Path Workbench'),
+        h('h1', {}, "McFez's HomeBrew Development Environment"), h('p', { class: 'muted' }, 'MHDE'),
         h('p', {}, 'Everything for learning and writing C and C++ in one window: an editor that knows both (clangd, or snippets and an outline without it), CMake and CTest, gdb, Valgrind and the sanitizers, clang-tidy and cppcheck, a C and a C++ sandbox with an assembly view, a judge for competitive programming, a terminal, git, your vaults\' guides and flashcards, IRC, mail and music. Work down the list; tick each one off when you have done it.'),
         h('p', { class: 'muted' }, 'F10 opens the menus, Ctrl+Shift+P finds any command by name. Every function key is on the bar at the bottom.')));
       const list = h('ol', { class: 'steps md' });
@@ -94,7 +94,7 @@ function openKeys() {
 async function about() {
   const info = await call('app.info');
   const { dialog } = await import('./ui.js');
-  dialog({ title: 'About', body: h('div', {}, h('p', {}, `C++ Path Workbench ${info.version}: C and C++`), h('p', {}, 'Made for the CPP-Path vault (and any other vaults you add), from the same parts as the Kernel Path Workbench. GPL-2.0; the VGA font is drawn from the Linux kernel\'s font_8x16.c.'), h('p', { class: 'muted' }, `Settings: ${info.configFile}`)) });
+  dialog({ title: 'About', body: h('div', {}, h('p', {}, `McFez's HomeBrew Development Environment (MHDE) ${info.version}: C and C++`), h('p', {}, 'Made for the CPP-Path vault (and any other vaults you add), from the same parts as the Kernel Path Workbench. GPL-2.0; the VGA font is drawn from the Linux kernel\'s font_8x16.c.'), h('p', { class: 'muted' }, `Settings: ${info.configFile}`)) });
 }
 
 export function initWelcome() {

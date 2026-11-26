@@ -64,8 +64,8 @@ async function main() {
 
     await step('first run opens the tutorial', async () => {
       await page.waitForSelector('.tab-page.active .steps .step');
-      assert.match(await page.locator('.tab-page.active h1').innerText(), /C\+\+ Path Workbench/);
-      assert.strictEqual(await page.title(), 'C++ Path Workbench');
+      assert.match(await page.locator('.tab-page.active h1').innerText(), /McFez's HomeBrew Development Environment/);
+      assert.strictEqual(await page.title(), "McFez's HomeBrew Development Environment (MHDE)");
       await shot('01-welcome-blue');
     });
 

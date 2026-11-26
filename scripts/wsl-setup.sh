@@ -49,5 +49,5 @@ fi
 echo "OK: $(cat node_modules/electron/dist/version 2>/dev/null || echo installed)"
 
 say "Done"
-echo "Start it from the Windows Start menu or desktop: C++ Path Workbench."
+echo "Start it from the Windows Start menu or desktop: MHDE (McFez's HomeBrew Development Environment)."
 echo "Or here: cd \"$DIR\" && npm start   (npm run web: the same app in your browser)"
