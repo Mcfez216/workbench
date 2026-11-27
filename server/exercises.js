@@ -369,6 +369,32 @@ function summary() {
   }
   return { topics: [...topics.values()], days: p.days, totals: { done: items.filter((i) => i.done).length, started: items.filter((i) => !i.done && (i.step > 0 || i.attempts > 0)).length, all: items.length } };
 }
+// ------------------------------------------------------------------ the exercise of the day
+// One a day, picked the same way all day: an exercise you started and left,
+// else one you finished a while ago, to do again from memory (spaced
+// practice: what you redo after a gap is what sticks), else the next new one
+// in the language you're working in. Never a streak: a missed day is fine.
+function dailyPick() {
+  const p = loadProgress();
+  const d = today();
+  if (p.today && p.today.date === d && byId.has(p.today.id)) return { ...p.today, done: !!(p.exercises[p.today.id] || {}).done && (p.exercises[p.today.id] || {}).updated >= p.today.picked, title: byId.get(p.today.id).title };
+  const lang = config.get().language || 'cpp';
+  const all = DATA.filter((e) => e.kind !== 'ctf');
+  const st = (e) => p.exercises[e.id] || {};
+  const days = (e) => (Date.now() - (st(e).updated || 0)) / 86400000;
+  let pick = null, reason = '', redo = false;
+  const unfinished = all.filter((e) => !st(e).done && (st(e).step > 0 || st(e).attempts > 0)).sort((a, b) => (st(b).updated || 0) - (st(a).updated || 0));
+  const stale = all.filter((e) => st(e).done && days(e) >= 7).sort((a, b) => (st(a).updated || 0) - (st(b).updated || 0));
+  const fresh = all.filter((e) => !st(e).done && !(st(e).step > 0 || st(e).attempts > 0));
+  if (unfinished.length) { pick = unfinished[0]; reason = `You started this one ${Math.max(0, Math.round(days(pick)))} day(s) ago: finish it.`; }
+  else if (stale.length) { pick = stale[0]; redo = true; reason = `You finished this ${Math.round(days(pick))} days ago. Do it again from memory: what you redo after a gap is what sticks. (Your old file is kept as a backup.)`; }
+  else if (fresh.length) { pick = fresh.find((e) => e.lang === lang) || fresh[0]; reason = `Next up${pick.lang === lang ? ` in ${{ c: 'C', cpp: 'C++', rust: 'Rust' }[lang]}` : ''}: something new.`; }
+  else { pick = all[Math.floor(Math.random() * all.length)]; redo = true; reason = 'You\'ve done them all. Pick this one up again from memory.'; }
+  p.today = { date: d, id: pick.id, reason, redo, picked: Date.now() };
+  saveProgress(p);
+  return { ...p.today, done: false, title: pick.title };
+}
+
 function logMinutes({ minutes }) { const p = loadProgress(); logDay(p, 'minutes', Math.max(0, Math.min(600, Math.round(+minutes || 0)))); saveProgress(p); return true; }
 
 function init(a) {
@@ -380,6 +406,7 @@ function init(a) {
   a.register('exercises.flag', flag);
   a.register('exercises.solution', solution);
   a.register('exercises.reset', reset);
+  a.register('exercises.today', dailyPick);
   a.register('progress.summary', summary);
   a.register('progress.minutes', logMinutes);
 }

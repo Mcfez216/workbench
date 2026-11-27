@@ -990,3 +990,12 @@ pre.disasm, pre.hexdump { background: var(--code-bg); color: var(--code-fg); pad
 .tr-cols pre, .tr-fail pre { margin: 0.2em 0; padding: 0.3em 0.6ch; background: var(--code-bg); color: var(--code-fg); max-height: 16em; overflow: auto; white-space: pre-wrap; }
 .solution-view { padding: 1em 2ch; height: 100%; overflow: auto; box-sizing: border-box; margin: 0; }
 .track .ex-step-head { flex-wrap: wrap; }
+.port-original { margin: 0.6em 0 1em; } .port-original summary { cursor: pointer; color: var(--accent); }
+.today-box { margin: 0.4em 0.6em 0.6em; padding: 0.4em 1ch; border: 1px solid var(--accent); }
+html[data-retro="no"] .today-box { border-radius: var(--radius); }
+.today-box.done { border-color: var(--ok); }
+.today-title { color: var(--accent); font-weight: bold; }
+html[data-pixel="yes"] .today-title { font-weight: normal; }
+.today-box.done .today-title { color: var(--ok); }
+.today-name { background: none; border: none; color: var(--link); cursor: pointer; padding: 0; font: inherit; text-align: left; text-decoration: underline; }
+.start .today-box { margin: 0 0 1em; max-width: 70ch; }

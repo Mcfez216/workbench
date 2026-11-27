@@ -22,12 +22,14 @@ export async function refreshTracks() { list = await call('tracks.list').catch((
 // The rows for the Learn sidebar
 export function trackRows() {
   const box = h('div', {});
-  box.append(h('div', { class: 'tree-group' }, 'Build a real thing'));
-  if (!list.length) refreshTracks().then(() => box.replaceWith(trackRows()));
+  if (!list.length) refreshTracks().then(() => { if (list.length) box.replaceWith(trackRows()); });
+  let group = null;
   for (const t of list) {
+    const g = t.port ? 'Port it: C to C++ or Rust' : 'Build a real thing';
+    if (g !== group) { box.append(h('div', { class: 'tree-group' }, g)); group = g; }
     const done = Object.entries(t.langs).filter(([, s]) => s.reached >= t.milestones).map(([l]) => LANG_NAME[l]);
     const going = Object.entries(t.langs).filter(([, s]) => s.started && s.reached < t.milestones).map(([l, s]) => `${LANG_NAME[l]} ${s.reached}/${t.milestones}`);
-    const meta = done.length ? `✓ ${done.join(', ')}` : going.length ? going.join(' · ') : `${t.milestones} steps`;
+    const meta = done.length ? `✓ ${done.join(', ')}` : going.length ? going.join(' · ') : t.port ? 'C++ · Rust' : `${t.milestones} steps`;
     const b = h('button', { type: 'button', class: 'tree-row ex-row' + (done.length ? ' done' : ''), title: t.blurb },
       h('span', { class: 'ex-status', 'aria-hidden': 'true' }, done.length ? '✓' : going.length ? '◐' : '○'),
       h('span', { class: 'name' }, t.name), h('span', { class: 'ex-meta' }, meta));
@@ -54,7 +56,9 @@ function md(text) { const d = h('div', { class: 'md' }); d.innerHTML = renderMar
 export async function openTrack(id, lang) {
   if (!list.length) await refreshTracks();
   const saved = await call('state.get', { key: `track.lang:${id}`, fallback: null });
-  const pick = lang || saved || (['c', 'cpp', 'rust'].includes(language()) ? language() : 'cpp');
+  const allowed = (list.find((x) => x.id === id) || {}).port ? ['cpp', 'rust'] : ['c', 'cpp', 'rust'];
+  let pick = lang || saved || (allowed.includes(language()) ? language() : allowed.includes('cpp') ? 'cpp' : allowed[0]);
+  if (!allowed.includes(pick)) pick = allowed[0];
   const tid = 'track:' + id;
   let t = tabs.get(tid);
   if (!t) {
@@ -153,10 +157,19 @@ function draw(t) {
   const top = page.scrollTop;
   clear(page);
   const choice = h('div', { class: 'lang-switch track-lang', role: 'group', 'aria-label': 'Language' },
-    ['c', 'cpp', 'rust'].map((l) => h('button', { type: 'button', class: 'choice', 'aria-pressed': l === t.lang ? 'true' : 'false', title: `Build it in ${LANG_NAME[l]}`, onclick: () => load(t, l) }, LANG_NAME[l])));
+    d.langs.map((l) => h('button', { type: 'button', class: 'choice', 'aria-pressed': l === t.lang ? 'true' : 'false', title: `Build it in ${LANG_NAME[l]}`, onclick: () => load(t, l) }, LANG_NAME[l])));
   page.append(h('div', { class: 'ex-head' },
     h('div', { class: 'ex-tags' }, h('span', { class: 'tag' }, 'Build a real thing'), ...d.skills.map((s) => h('span', { class: 'tag' }, s))),
     h('h1', {}, d.title), md(d.blurb), choice));
+  if (d.original) {
+    const pre = h('pre', { class: 'cmp-code' });
+    import('./highlight.js').then(({ highlightToHtml }) => { pre.innerHTML = highlightToHtml(d.original, d.port); });
+    pre.textContent = d.original;
+    page.append(h('details', { class: 'port-original', open: !d.started || d.reached === 0 },
+      h('summary', {}, 'The C program to port'),
+      h('div', { class: 'cmp-side' }, h('div', { class: 'code-tools' }, h('span', { class: 'code-lang' }, 'C'),
+        h('button', { type: 'button', onclick: async () => { const { sandboxWith } = await import('./build.js'); sandboxWith(d.original, d.port); } }, 'Try it in the sandbox')), pre)));
+  }
   if (!d.started) {
     page.append(h('div', { class: 'ex-step current' },
       h('p', {}, `A ${LANG_NAME[t.lang]} project in ${d.dir}: ${t.lang === 'rust' ? 'Cargo.toml and src/main.rs' : `CMakeLists.txt and src/main.${t.lang === 'c' ? 'c' : 'cpp'}`}. Nothing you already have is replaced.`),
@@ -196,7 +209,7 @@ function draw(t) {
   if (cur >= d.milestones.length) {
     const fin = h('div', { class: 'ex-finished' }, h('p', {}, `${d.name} is finished, in ${LANG_NAME[t.lang]}. Build it optimised and put it on your PATH, so you can run \`${d.name}\` in any terminal:`),
       h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: () => install(t) }, d.installed ? 'Install it again' : 'Install it'),
-        h('button', { class: 'btn', type: 'button', onclick: () => load(t, t.lang === 'c' ? 'cpp' : t.lang === 'cpp' ? 'rust' : 'c') }, `Now build it in ${LANG_NAME[t.lang === 'c' ? 'cpp' : t.lang === 'cpp' ? 'rust' : 'c']}`)));
+        (() => { const next = d.langs[(d.langs.indexOf(t.lang) + 1) % d.langs.length]; return next !== t.lang ? h('button', { class: 'btn', type: 'button', onclick: () => load(t, next) }, `Now build it in ${LANG_NAME[next]}`) : null; })()));
     if (t.installed || d.installed) {
       const r = t.installed || { path: d.installed, onPath: true };
       fin.append(h('p', { class: 'small' }, `Installed: ${r.path}. `, r.onPath === false ? `That folder (${r.dir}) isn't on your PATH yet: add it, or run it by its full path.` : `Open a new terminal and type ${d.name}.`));

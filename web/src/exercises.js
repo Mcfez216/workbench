@@ -18,6 +18,26 @@ let items = [];
 
 const STATUS = (it) => (it.done ? '✓' : it.step > 0 || it.attempts > 0 ? '◐' : '○');
 
+// The exercise of the day: a small box at the top of Learn and on the start screen
+export async function todayBox() {
+  let d;
+  try { d = await call('exercises.today'); } catch (e) { return null; }
+  return h('div', { class: 'today-box' + (d.done ? ' done' : '') },
+    h('div', { class: 'today-title' }, d.done ? '✓ Today\'s exercise: done' : 'Today\'s exercise'),
+    h('button', { type: 'button', class: 'link today-name', onclick: () => openToday() }, d.title),
+    h('div', { class: 'muted small' }, d.done ? 'That\'s today\'s practice. Anything more is a bonus.' : d.reason));
+}
+export async function openToday() {
+  const d = await call('exercises.today');
+  const it = (items.length ? items : await refreshExercises()).find((x) => x.id === d.id);
+  // doing a finished one again: start from the starter (the old file is kept as a .bak)
+  if (d.redo && it && it.done) {
+    if (!(await confirm('Do it again from memory?', `"${d.title}" starts again from the beginning. Your finished file is kept next to it as a backup.`, 'Start again', 'Not now'))) return;
+    await call('exercises.reset', { id: d.id });
+  }
+  return openExercise(d.id);
+}
+
 export async function refreshExercises() {
   items = await call('exercises.list');
   render();
@@ -43,6 +63,9 @@ function render() {
   clear(listEl);
   const tracks = [...new Set(items.map((i) => i.track))];
   const done = items.filter((i) => i.done).length;
+  const slot = h('div', {});
+  listEl.append(slot);
+  todayBox().then((b) => { if (b) slot.replaceWith(b); });
   listEl.append(h('p', { class: 'pad muted small' }, `${done} of ${items.length} done. Pick any; they don't have to go in order.`));
   for (const tr of tracks) {
     listEl.append(h('div', { class: 'tree-group' }, tr));
@@ -276,6 +299,7 @@ export function initExercises() {
   window.addEventListener('cpw-tracks-changed', () => { if (listEl) render(); });
   call('exercises.list').then((l) => { items = l; }).catch(() => {});
   command('learn.show', 'Exercises', [], () => sidebar.show('learn'));
+  command('learn.today', 'Today\'s exercise', [], () => openToday());
   command('exercise.open', 'Open an exercise', [], (id) => openExercise(id), { needsArgs: true });
   command('exercise.check', 'Check my exercise', [], () => { const id = currentExercise(); return id ? checkExercise(id) : toast('Open an exercise first (Learn)'); });
   command('exercise.next', 'Next exercise', [], () => { const id = currentExercise(); return nextExercise(id); });

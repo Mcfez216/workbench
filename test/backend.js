@@ -730,7 +730,8 @@ async function test(name, fn) {
 
   await test('build a real thing: a project, the starter fails, the finished program passes every milestone, install puts it on PATH; Rust too', async () => {
     const tl = await call('tracks.list');
-    assert.deepStrictEqual(tl.map((t) => t.id), ['count', 'todo', 'adventure', 'kv', 'jsonq']);
+    assert.deepStrictEqual(tl.map((t) => t.id), ['count', 'todo', 'adventure', 'kv', 'jsonq', 'port-caesar', 'port-stats', 'port-rpn']);
+    assert.deepStrictEqual(Object.keys(tl[5].langs), ['cpp', 'rust'], 'a port is to C++ or Rust');
     const o = await call('tracks.open', { id: 'count', lang: 'c' });
     assert.ok(fs.existsSync(path.join(path.dirname(path.dirname(o.main)), 'CMakeLists.txt')));
     const a = await call('tracks.check', { id: 'count', lang: 'c' });
@@ -759,6 +760,22 @@ async function test(name, fn) {
       const rr = await call('tracks.check', { id: 'kv', lang: 'rust' });
       assert.strictEqual(rr.passed, true, JSON.stringify(rr).slice(0, 500));
     }
+  });
+
+  await test('exercise of the day: the same all day; an exercise you started and left comes first', async () => {
+    const a = await call('exercises.today');
+    const b = await call('exercises.today');
+    assert.strictEqual(a.id, b.id);
+    assert.ok(a.title && a.reason);
+    // a fresh pick tomorrow: pretend the stored pick is old, after starting one
+    const progFile = path.join(HOME, '.local', 'share', 'cpp-path-workbench', 'exercises', 'progress.json');
+    const p = JSON.parse(fs.readFileSync(progFile, 'utf8'));
+    p.today.date = '2000-01-01';
+    p.exercises['rs-closures'] = { step: 1, done: false, attempts: 2, reflections: {}, updated: Date.now() + 1000 };
+    fs.writeFileSync(progFile, JSON.stringify(p));
+    const c = await call('exercises.today');
+    assert.strictEqual(c.id, 'rs-closures');
+    assert.match(c.reason, /finish it/);
   });
 
   await test('course vaults: copied to ~/Notes on the first start; new notes later, your edits never replaced', async () => {

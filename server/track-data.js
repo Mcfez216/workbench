@@ -364,4 +364,69 @@ module.exports = [
       },
     ],
   },
+
+  // ================================================================== ports: a working C program, again in C++ or Rust
+  // port: the original C file (server/tracks/<id>/original.c) is shown on the
+  // page, and the same tests check that your version behaves exactly like it.
+  {
+    id: 'port-caesar', name: 'caesar', title: 'Port it: a Caesar cipher', port: 'c', langs: ['cpp', 'rust'],
+    blurb: 'A small C tool that shifts letters round the alphabet. Write it again in C++ or Rust so it behaves exactly the same: same output, same errors, same exit codes.',
+    skills: ['arguments', 'parsing a number safely', 'bytes and chars'],
+    milestones: [{
+      title: 'Behave exactly like the C version',
+      brief: 'Read the C program above until you could explain each line, then write it again in your language: the way that language would do it, not line by line. `caesar 3` shifts every letter 3 places (Z wraps round to C), keeps capitals capital, and leaves everything else (spaces, digits, é) alone. A shift that isn\'t a number, or a missing one, is an error with exit code 2.',
+      hints: {
+        cpp: ['Parse the shift with `std::from_chars`: it says exactly where it stopped, and never throws.', 'Keep the shift in 0..25 with `((shift % 26) + 26) % 26`: `%` of a negative number is negative in C and C++.'],
+        rust: ['`args[0].parse::<i64>()` gives a Result: `let Ok(shift) = ... else { ... }`.', '`shift.rem_euclid(26)` is always 0..25, even for negative numbers: Rust\'s `%` keeps the sign like C\'s.', 'Work on bytes (`read_to_end`), not chars: a byte that isn\'t an ASCII letter goes through unchanged.'],
+      },
+      tests: [
+        T('shift by 3', { args: ['3'], stdin: 'Hello, World!\n', out: 'Khoor, Zruog!' }),
+        T('wrap round the end', { args: ['1'], stdin: 'xyz XYZ\n', out: 'yza YZA' }),
+        T('a negative shift undoes it', { args: ['-3'], stdin: 'Khoor, Zruog!\n', out: 'Hello, World!' }),
+        T('a big shift', { args: ['55'], stdin: 'abc\n', out: 'def' }),
+        T('everything else unchanged', { args: ['5'], stdin: '123 café ?!\n', out: '123 hfké ?!' }),
+        T('not a number', [{ args: ['three'], stdin: 'x', code: 2, errHas: 'must be a number' }, { args: ['3x'], stdin: 'x', code: 2, err: true }, { args: [], stdin: 'x', code: 2, errHas: 'usage' }]),
+      ],
+    }],
+  },
+  {
+    id: 'port-stats', name: 'stats', title: 'Port it: number statistics', port: 'c', langs: ['cpp', 'rust'],
+    blurb: 'A C program with a hand-grown array (realloc), qsort and a careful comparison function. In C++ or Rust most of that bookkeeping disappears: see how much.',
+    skills: ['growing arrays', 'sorting', 'floating point output'],
+    milestones: [{
+      title: 'Behave exactly like the C version',
+      brief: 'Read whole numbers from standard input and print `count`, `min`, `max`, `mean` (2 decimals) and `median` (1 decimal), one per line, exactly as the C version does. No numbers: just `count 0`. Something that isn\'t a whole number: `stats: that isn\'t a whole number` on standard error, exit code 1.',
+      hints: {
+        cpp: ['`std::vector<long>` replaces the malloc/realloc/free; `std::sort` replaces qsort and its comparison function.', 'After `while (std::cin >> x)` stops, `std::cin.eof()` tells you whether it was the end of input or something that wasn\'t a number.', '`std::printf("%.2f")` matches C\'s output exactly; with streams use `std::fixed << std::setprecision(2)`.'],
+        rust: ['`input.split_whitespace()` and `w.parse::<i64>()` for each word.', '`println!("mean {:.2}", m)` prints 2 decimals, rounded the same way as C.'],
+      },
+      tests: [
+        T('three numbers', { stdin: '3 1 2\n', out: 'count 3\nmin 1\nmax 3\nmean 2.00\nmedian 2.0' }),
+        T('an even count', { stdin: '10\n20\n30\n41\n', out: 'count 4\nmin 10\nmax 41\nmean 25.25\nmedian 25.0' }),
+        T('negatives and a half median', { stdin: '-5 0 4 7\n', out: 'count 4\nmin -5\nmax 7\nmean 1.50\nmedian 2.0' }),
+        T('nothing', { stdin: '', out: 'count 0' }),
+        T('not a number', { stdin: '1 2 three\n', code: 1, errHas: "that isn't a whole number" }),
+        T('many numbers', { stdin: Array.from({ length: 5000 }, (_, i) => String(5000 - i)).join(' '), out: 'count 5000\nmin 1\nmax 5000\nmean 2500.50\nmedian 2500.5' }),
+      ],
+    }],
+  },
+  {
+    id: 'port-rpn', name: 'rpn', title: 'Port it: an RPN calculator', port: 'c', langs: ['cpp', 'rust'],
+    blurb: 'A C calculator with a fixed-size array as its stack, strtok and error strings. Port it with a growable stack and a proper error type.',
+    skills: ['a stack', 'tokenising', 'error values instead of strings'],
+    milestones: [{
+      title: 'Behave exactly like the C version',
+      brief: 'Each line is an expression in reverse Polish notation: `3 4 + 2 *` is (3 + 4) × 2. Print the result, or `error: ...` with the same words as the C version (`unknown word`, `not enough numbers`, `too many numbers`, `division by zero`), and carry on with the next line. Blank lines print nothing. Division is whole-number division, like C.',
+      hints: {
+        cpp: ['A `std::vector<long>` as the stack: `push_back`, `back`, `pop_back`. No fixed size, so no "stack full" case.', 'Return a `std::variant<long, std::string>`, or `std::optional<long>` plus an error out-parameter, instead of C\'s string-or-NULL.'],
+        rust: ['An `enum Error { UnknownWord, NotEnough, TooMany, DivByZero, Blank }` and `fn eval(line: &str) -> Result<i64, Error>`.', '`let (Some(b), Some(a)) = (stack.pop(), stack.pop()) else { return Err(Error::NotEnough) };`', '`a.checked_div(b)` is None when b is 0.'],
+      },
+      tests: [
+        T('arithmetic', { stdin: '3 4 + 2 *\n10 3 -\n7 2 /\n-6 3 /\n', out: '14\n7\n3\n-2' }),
+        T('errors, then carry on', { stdin: '1 +\n1 2 3 +\n4 0 /\n2 x *\n5 5 +\n', out: 'error: not enough numbers\nerror: too many numbers\nerror: division by zero\nerror: unknown word\n10' }),
+        T('blank lines print nothing', { stdin: '\n   \n2 2 *\n', out: '4' }),
+        T('a single number', { stdin: '42\n', out: '42' }),
+      ],
+    }],
+  },
 ];

@@ -598,6 +598,8 @@ async function main() {
     await step('build a real thing: Learn lists the tracks, Start makes the project, F7 shows what your program printed against what it should', async () => {
       await page.locator('.side-head button', { hasText: 'Learn' }).click();
       await page.waitForSelector('.ex-list .tree-group:has-text("Build a real thing")');
+      await page.waitForSelector('.ex-list .tree-group:has-text("Port it")');
+      await page.waitForSelector('.ex-list .today-box .today-name');
       await page.locator('.ex-list .ex-row', { hasText: /^.?\s*count/ }).click();
       await page.waitForSelector('.tab-page.active .track h1:has-text("count")');
       await page.locator('.tab-page.active .track-lang .choice', { hasText: /^C\+\+$/ }).click();

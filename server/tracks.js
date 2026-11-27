@@ -32,10 +32,15 @@ function dirOf(id, lang) { return path.join(buildsDir(), keyOf(id, lang)); }
 function mainOf(id, lang) { return path.join(dirOf(id, lang), 'src', `main.${EXT[lang]}`); }
 function trackFile(id, name) { return path.join(__dirname, 'tracks', id, name); }
 function solutionText(id, lang) { try { return fs.readFileSync(trackFile(id, `solution.${EXT[lang]}`), 'utf8'); } catch (e) { return null; } }
+// A port's starting point: the working C program to write again
+function originalText(t) { if (!t.port) return null; try { return fs.readFileSync(trackFile(t.id, `original.${EXT[t.port]}`), 'utf8'); } catch (e) { return null; } }
+const langsOf = (t) => t.langs || LANGS;
 
 function starter(t, lang) {
   const first = t.milestones[0];
-  const head = `${t.title}\n\nMilestone 1: ${first.title}. The steps are in Learn → Build a real thing;\nF7 checks the milestone you're on.`;
+  const head = t.port
+    ? `${t.title}\n\nThe C version is on the track page (Learn → Port it). Write the same\nprogram in this language; F7 checks it behaves exactly the same.`
+    : `${t.title}\n\nMilestone 1: ${first.title}. The steps are in Learn → Build a real thing;\nF7 checks the milestone you're on.`;
   if (lang === 'c') return `/* ${head.replace(/\*\//g, '* /')} */\n#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n\nint main(int argc, char **argv)\n{\n    (void)argc;\n    (void)argv;\n    /* your code */\n    return 0;\n}\n`;
   if (lang === 'cpp') return `// ${head.split('\n').join('\n// ')}\n#include <iostream>\n#include <string>\n#include <vector>\n\nint main(int argc, char** argv)\n{\n    std::vector<std::string> args(argv + 1, argv + argc);\n    // your code\n    return 0;\n}\n`;
   return `// ${head.split('\n').join('\n// ')}\n\nfn main() {\n    let args: Vec<String> = std::env::args().skip(1).collect();\n    // your code\n    let _ = args;\n}\n`;
@@ -58,8 +63,8 @@ function projectFiles(t, lang) {
 function list() {
   const p = loadProgress();
   return DATA.map((t) => ({
-    id: t.id, name: t.name, title: t.title, blurb: t.blurb, skills: t.skills, milestones: t.milestones.length,
-    langs: Object.fromEntries(LANGS.map((l) => [l, { reached: (p[keyOf(t.id, l)] || {}).reached || 0, started: fs.existsSync(dirOf(t.id, l)), installed: (p[keyOf(t.id, l)] || {}).installed || null }])),
+    id: t.id, name: t.name, title: t.title, blurb: t.blurb, skills: t.skills, milestones: t.milestones.length, port: t.port || null,
+    langs: Object.fromEntries(langsOf(t).map((l) => [l, { reached: (p[keyOf(t.id, l)] || {}).reached || 0, started: fs.existsSync(dirOf(t.id, l)), installed: (p[keyOf(t.id, l)] || {}).installed || null }])),
   }));
 }
 
@@ -68,7 +73,7 @@ function get({ id, lang }) {
   if (!t) throw new Error(`No track ${id}`);
   const p = loadProgress()[keyOf(id, lang)] || {};
   return {
-    id, lang, name: t.name, title: t.title, blurb: t.blurb, skills: t.skills,
+    id, lang, name: t.name, title: t.title, blurb: t.blurb, skills: t.skills, langs: langsOf(t), port: t.port || null, original: originalText(t),
     dir: dirOf(id, lang), main: mainOf(id, lang), started: fs.existsSync(dirOf(id, lang)), reached: p.reached || 0, installed: p.installed || null,
     milestones: t.milestones.map((m) => ({
       title: m.title, brief: m.brief,
@@ -82,7 +87,7 @@ function get({ id, lang }) {
 // Start (or reopen) a project: files that are already there are never replaced
 function open({ id, lang }) {
   const t = byId.get(id);
-  if (!t || !LANGS.includes(lang)) throw new Error('Pick a track and a language');
+  if (!t || !langsOf(t).includes(lang)) throw new Error('Pick a track and a language');
   const dir = dirOf(id, lang);
   for (const [rel, text] of Object.entries(projectFiles(t, lang))) {
     const f = path.join(dir, rel);

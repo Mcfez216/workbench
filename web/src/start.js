@@ -30,6 +30,8 @@ async function renderStart(el) {
     whereWasI(),
   ]);
   const l = language();
+  const todaySlot = h('div', {});
+  import('./exercises.js').then((m) => m.todayBox()).then((b) => { if (b) todaySlot.replaceWith(b); }).catch(() => {});
   const keyOf = (id) => (commands.get(id) && commands.get(id).keys[0]) || '';
   const action = ([id, label, hint]) => h('button', { type: 'button', class: 'start-action', onclick: () => runCommand(id) },
     h('span', { class: 'sa-label' }, label), keyOf(id) ? h('span', { class: 'kbd' }, keyOf(id)) : null, h('span', { class: 'sa-hint' }, hint));
@@ -42,6 +44,7 @@ async function renderStart(el) {
       h('h1', {}, 'MHDE: C, C++ and Rust'),
       h('div', { class: 'start-lang' }, h('span', { class: 'muted' }, 'Working in'), langSwitch(), h('span', { class: 'muted' }, toolchainLabel(l)), h('span', { class: 'kbd' }, 'Ctrl+Shift+J'))),
     (where.file || where.ex || where.next) ? h('section', { class: 'start-col start-where' }, h('h2', {}, 'Where you were'), whereBox(where)) : null,
+    todaySlot,
     h('div', { class: 'start-cols' },
       h('section', { class: 'start-col' }, h('h2', {}, 'Start'), ACTIONS.map(action)),
       h('section', { class: 'start-col' },
