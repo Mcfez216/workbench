@@ -139,7 +139,10 @@ function singleArgs(file, variant = 'run') {
   if (variant === 'valgrind') flags = [...NO_SANITIZERS(flags).filter((f) => !/^-O/.test(f)), '-O0', '-g'];
   if (variant === 'debug') flags = [...flags.filter((f) => !/^-O/.test(f)), '-O0', '-g'];
   if (variant === 'release') flags = [...NO_SANITIZERS(flags).filter((f) => !/^-O|^-g$/.test(f)), '-O2'];
-  const out = platform.exe(outputFor(file).replace(/\.exe$/i, '') + (variant === 'valgrind' ? '.vg' : variant === 'release' ? '.release' : ''));
+  // ThreadSanitizer: data races between threads. It can't share a program
+  // with ASan, and wants a little optimisation to keep its reports readable
+  if (variant === 'tsan') flags = [...NO_SANITIZERS(flags).filter((f) => !/^-O|^-g$/.test(f)), '-O1', '-g', '-fsanitize=thread'];
+  const out = platform.exe(outputFor(file).replace(/\.exe$/i, '') + (variant === 'valgrind' ? '.vg' : variant === 'release' ? '.release' : variant === 'tsan' ? '.tsan' : ''));
   const libs = tc.lang === 'c' ? ['-lm'] : [];
   return { tc, out, flags, args: [`-std=${tc.std}`, ...flags, '-o', out, file, ...libs] };
 }
@@ -190,6 +193,21 @@ async function debugSingle({ file, line, args = '', prepare = false }) {
 // way (note 4.03's other half). Built without the sanitizers, which can't
 // share a process with valgrind.
 const VALGRIND = ['valgrind', '--leak-check=full', '--show-leak-kinds=definite,indirect', '--track-origins=yes', '--error-exitcode=99'];
+// ThreadSanitizer: for programs with threads. Linux (and WSL) only: there's
+// no TSan runtime for OpenBSD or for Windows' toolchains.
+function tsanAvailable() {
+  if (platform.WIN) throw new Error('ThreadSanitizer isn\'t available on Windows without WSL: use the WSL version for data races (or reason them through with a Mutex)');
+  if (platform.BSD) throw new Error('ThreadSanitizer isn\'t available on OpenBSD: try it on Linux or WSL');
+}
+const TSAN_ENV = { TSAN_OPTIONS: 'second_deadlock_stack=1 history_size=4' };
+async function tsanSingle({ file, args = '' }) {
+  tsanAvailable();
+  const r = await buildSingle({ file, variant: 'tsan' });
+  if (r.code !== 0) return { ok: false, ...r, output: undefined };
+  const term = runProgram({ cwd: path.dirname(file), command: `${Object.entries(TSAN_ENV).map(([k, v]) => `${k}='${v}' `).join('')}./${q(path.basename(r.exe))} ${args}`.trim(), title: `ThreadSanitizer: ${path.basename(file)}` });
+  return { ok: true, ...r, terminal: term, target: path.basename(r.exe) };
+}
+
 async function valgrindSingle({ file, args = '' }) {
   if (!which('valgrind')) throw new Error(`Valgrind is not installed (${hint('valgrind')})`);
   const r = await buildSingle({ file, variant: 'valgrind' });
@@ -216,9 +234,13 @@ async function sandboxRun({ source, compiler, std, lang = 'cpp', tool }) {
   const file = sandboxFileFor(tc.lang);
   fs.writeFileSync(file, source);
   const vg = tool === 'valgrind';
+  const ts = tool === 'tsan';
   if (vg && !which('valgrind')) throw new Error(`Valgrind is not installed (${hint('valgrind')})`);
-  const flags = vg ? [...NO_SANITIZERS(cfg.build.sandboxFlags).filter((f) => !/^-O/.test(f)), '-O0', '-g'] : platform.sanitizerFlags(cfg.build.sandboxFlags, { cc: tc.cc });
-  const out = path.join(dir, platform.exe(vg ? 'scratch-vg' : 'scratch'));
+  if (ts) tsanAvailable();
+  const flags = vg ? [...NO_SANITIZERS(cfg.build.sandboxFlags).filter((f) => !/^-O/.test(f)), '-O0', '-g']
+    : ts ? [...NO_SANITIZERS(cfg.build.sandboxFlags).filter((f) => !/^-O|^-g$/.test(f)), '-O1', '-g', '-fsanitize=thread']
+      : platform.sanitizerFlags(cfg.build.sandboxFlags, { cc: tc.cc });
+  const out = path.join(dir, platform.exe(vg ? 'scratch-vg' : ts ? 'scratch-tsan' : 'scratch'));
   const libs = tc.lang === 'c' ? ['-lm'] : [];
   let cmd = tc.cc, args = [`-std=${tc.std}`, ...flags, '-o', out, file, ...libs], note = '';
   if (tc.lang === 'cpp') {
@@ -229,7 +251,7 @@ async function sandboxRun({ source, compiler, std, lang = 'cpp', tool }) {
   }
   const res = await execStream({ cmd, args, cwd: dir, title: `sandbox: ${cmd} -std=${args[0].slice(5)}${note ? ` (${note})` : ''}` });
   if (res.code !== 0) return { ok: false, ...res, file, lang: tc.lang, output: undefined };
-  const term = runProgram({ cwd: dir, command: vg ? `${VALGRIND.join(' ')} ./scratch-vg` : `./${path.basename(out)}`, title: vg ? 'sandbox: valgrind' : 'sandbox: scratch', flags });
+  const term = runProgram({ cwd: dir, command: vg ? `${VALGRIND.join(' ')} ./scratch-vg` : ts ? `TSAN_OPTIONS='${TSAN_ENV.TSAN_OPTIONS}' ./${path.basename(out)}` : `./${path.basename(out)}`, title: vg ? 'sandbox: valgrind' : ts ? 'sandbox: ThreadSanitizer' : 'sandbox: scratch', flags: ts ? [] : flags });
   return { ok: true, ...res, file, lang: tc.lang, output: undefined, terminal: term };
 }
 
@@ -407,6 +429,7 @@ function init(a) {
   a.register('build.single', buildSingle);
   a.register('build.debugSingle', debugSingle);
   a.register('build.valgrind', valgrindSingle);
+  a.register('build.tsan', tsanSingle);
   a.register('format.file', format);
   a.register('build.runProgram', (p) => runProgram(p));
   a.register('build.tools', tools);
@@ -425,4 +448,4 @@ function init(a) {
   a.register('dos.run', dosRun);
 }
 
-module.exports = { init, tidy, execStream, runProgram, buildSingle, debugSingle, valgrindSingle, filterAsm, which, hint, toolchain, CXX_EXT, C_EXT, SOURCE_EXT , sandboxDir };
+module.exports = { init, tidy, execStream, runProgram, buildSingle, debugSingle, valgrindSingle, tsanSingle, filterAsm, which, hint, toolchain, CXX_EXT, C_EXT, SOURCE_EXT , sandboxDir };

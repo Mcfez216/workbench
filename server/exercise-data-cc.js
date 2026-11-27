@@ -1177,4 +1177,84 @@ std::string Shape::describe() const {
 }
 `,
   },
+
+  // ================================================================== Security lab: threads
+  {
+    id: 'sec-data-race', lang: 'cpp', kind: 'functions', track: 'Security lab', topic: 'Data races', file: 'race.cpp', sanitize: 'thread',
+    title: 'Fix the data race',
+    intro: 'Threads that share memory without a lock race each other: updates get lost, and in C++ the program\'s behaviour is undefined. These steps run under ThreadSanitizer, which reports a race the moment it happens, with both lines (on Windows without WSL, where there\'s no ThreadSanitizer, only the totals are checked).',
+    starter: String.raw`#include <mutex>
+#include <thread>
+#include <vector>
+
+// Adds 1 to a shared total, each times, on each of threads threads.
+long count_together(int threads, int each) {
+    long total = 0;
+    std::vector<std::thread> pool;
+    for (int t = 0; t < threads; ++t)
+        pool.emplace_back([&] {
+            for (int i = 0; i < each; ++i) ++total;   // TODO step 1: a data race
+        });
+    for (auto& th : pool) th.join();
+    return total;
+}
+
+// The sum of each part, worked out on its own thread, in the parts' order.
+std::vector<long> sums_of_parts(const std::vector<std::vector<int>>& parts) {
+    std::vector<long> out;
+    std::vector<std::thread> pool;
+    for (const auto& part : parts)
+        pool.emplace_back([&out, &part] {
+            long s = 0;
+            for (int x : part) s += x;
+            out.push_back(s);   // TODO step 2: every thread changes the same vector
+        });
+    for (auto& th : pool) th.join();
+    return out;
+}
+`,
+    decls: '#include <vector>\nlong count_together(int threads, int each);\nstd::vector<long> sums_of_parts(const std::vector<std::vector<int>>& parts);\n',
+    steps: [
+      { title: 'count_together', brief: 'Four threads each add to `total` with no lock. Each `++total` is really read, add, write: two threads can read the same old value, and one increment is lost. ThreadSanitizer stops it at once and shows both lines. Make the total right: protect it with a `std::mutex`, or make it a `std::atomic<long>`.', hints: ['`std::mutex m;` next to `total`, and in the loop `{ std::lock_guard<std::mutex> lock(m); ++total; }` (the lock_guard unlocks when it goes out of scope).', 'Or `std::atomic<long> total{0};` and `return total.load();`', 'Fastest of all: each thread counts in its own local variable and adds it to the total once, under the lock, at the end.'],
+        test: String.raw`CHECK_INT(count_together(4, 20000), 80000); CHECK_INT(count_together(1, 5), 5); CHECK_INT(count_together(3, 0), 0);` },
+      { title: 'sums_of_parts', brief: 'Every thread `push_back`s into the same vector: a race on the vector itself (it can reallocate while another thread writes), and the sums come out in whatever order the threads finish. Give each thread its own slot instead: size the vector first, and thread i writes only `out[i]`. Different elements are different memory, so no lock is needed.', hints: ['`std::vector<long> out(parts.size());` then loop with an index: `for (std::size_t i = 0; i < parts.size(); ++i) pool.emplace_back([&out, &parts, i] { ... out[i] = s; });`', 'Capture `i` by value: by reference, every thread would see the loop\'s i change under it.'],
+        test: String.raw`auto r = sums_of_parts({{1, 2, 3}, {10, 20}, {}, {100}}); CHECK_VEC(r, (std::vector<long>{6, 30, 0, 100}));
+std::vector<std::vector<int>> many(16, std::vector<int>(1000, 1)); auto m = sums_of_parts(many); CHECK_INT(m.size(), 16); CHECK_INT(m[15], 1000);` },
+      { title: 'Why it matters', type: 'reflect', brief: 'In your own words: why did the starter\'s total come out wrong (and different from run to run), and why is a data race worse than "just a wrong number" in C and C++?',
+        answer: 'Each ++total is three steps: read the value, add one, write it back. When two threads do that at the same time, both can read the same old value, and one of the writes is lost; how many are lost depends on timing, so it changes from run to run. In C and C++ a data race is undefined behaviour: the compiler is allowed to assume it never happens, so optimised code can do things that make no sense in the source (keep a value in a register forever, tear a 64-bit write in half). Races in security-sensitive code (a reference count, a permission check that is then used) become exploitable: "time of check to time of use". Locks, atomics, or not sharing at all are the fixes; Rust refuses to compile the race in the first place.' },
+    ],
+    solution: String.raw`#include <atomic>
+#include <mutex>
+#include <thread>
+#include <vector>
+
+long count_together(int threads, int each) {
+    long total = 0;
+    std::mutex m;
+    std::vector<std::thread> pool;
+    for (int t = 0; t < threads; ++t)
+        pool.emplace_back([&] {
+            long mine = 0;
+            for (int i = 0; i < each; ++i) ++mine;   // no sharing in the loop
+            std::lock_guard<std::mutex> lock(m);
+            total += mine;
+        });
+    for (auto& th : pool) th.join();
+    return total;
+}
+
+std::vector<long> sums_of_parts(const std::vector<std::vector<int>>& parts) {
+    std::vector<long> out(parts.size());
+    std::vector<std::thread> pool;
+    for (std::size_t i = 0; i < parts.size(); ++i)
+        pool.emplace_back([&out, &parts, i] {
+            long s = 0;
+            for (int x : parts[i]) s += x;
+            out[i] = s;   // each thread its own element
+        });
+    for (auto& th : pool) th.join();
+    return out;
+}
+`,
+  },
 ];

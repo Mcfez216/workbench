@@ -228,11 +228,14 @@ async function checkFunctions(ex, upto) {
   fs.writeFileSync(h, src);
   const exe = path.join(work, require('./platform').exe('tests'));
   const { cc, std } = compilerFor(ex);
-  const c = await execStream({ cmd: cc, args: [`-std=${std}`, '-Wall', '-Wextra', '-Wno-unused-parameter', ...SAN, '-I', dir, '-o', exe, fileOf(ex), h, ...(ext === 'c' ? ['-lm'] : [])], cwd: dir, title: `exercise: ${ex.title}` });
+  // the data-race lab runs under ThreadSanitizer instead (where there is one)
+  const tsan = ex.sanitize === 'thread' && !require('./platform').WIN && !require('./platform').BSD;
+  const san = tsan ? ['-g', '-O1', '-fsanitize=thread'] : SAN;
+  const c = await execStream({ cmd: cc, args: [`-std=${std}`, '-Wall', '-Wextra', '-Wno-unused-parameter', ...san, '-I', dir, '-o', exe, fileOf(ex), h, ...(ext === 'c' ? ['-lm', ...(ex.sanitize === 'thread' ? ['-pthread'] : [])] : ex.sanitize === 'thread' ? ['-pthread'] : [])], cwd: dir, title: `exercise: ${ex.title}` });
   // the test program's own lines are ours, not yours: keep only problems in your files
   const mine = (pr) => pr.filter((x) => !x.file || x.file.startsWith(dir + path.sep) && !x.file.startsWith(work));
   if (c.code !== 0) return { compiled: false, problems: mine(c.problems), results: steps.map((s) => ({ step: s, passed: false, fails: [] })) };
-  const r = await execStream({ cmd: exe, args: [], cwd: dir, env: RUN_ENV, title: `exercise: tests up to step ${upto + 1}`, timeoutMs: 10000, source: 'test' });
+  const r = await execStream({ cmd: exe, args: [], cwd: dir, env: tsan ? { TSAN_OPTIONS: 'halt_on_error=1 exitcode=66' } : RUN_ENV, title: `exercise: tests up to step ${upto + 1}`, timeoutMs: 20000, source: 'test' });
   const results = parseRun(r.output, steps, r.code);
   return { compiled: true, problems: mine(c.problems).concat(mine(r.problems).map((x) => ({ ...x, runtime: true }))), results, output: r.output.slice(-8000) };
 }
@@ -263,7 +266,7 @@ function parseRun(out, steps, code) {
   return [...res.values()].map(({ reached, ...r }) => r);
 }
 function crashReason(out) {
-  const m = out.match(/ERROR: AddressSanitizer: ([\w-]+)/) || out.match(/runtime error: (.*)/) || out.match(/panicked at [^\n]*\n([^\n]+)/)
+  const m = out.match(/ERROR: AddressSanitizer: ([\w-]+)/) || out.match(/WARNING: ThreadSanitizer: ([\w -]+?)(?: \(pid|$)/m) || out.match(/runtime error: (.*)/) || out.match(/panicked at [^\n]*\n([^\n]+)/)
     || out.match(/in (?:free|malloc|realloc|calloc|recallocarray)\(\): (.*)/)   // OpenBSD's malloc (MALLOC_OPTIONS=S)
     || out.match(/(Segmentation fault|Aborted|Abort trap|Illegal instruction)/);
   if (m && m[1] === 'Illegal instruction') return 'undefined behaviour (UBSan stopped it: on OpenBSD it traps instead of printing)';

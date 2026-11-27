@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const pty = require('./pty');
-const { execStream, runProgram, buildSingle, debugSingle, valgrindSingle, which, hint, SOURCE_EXT } = require('./build');
+const { execStream, runProgram, buildSingle, debugSingle, valgrindSingle, tsanSingle, which, hint, SOURCE_EXT } = require('./build');
 const { catchSummary, ctestLine } = require('./parse');
 
 let api;
@@ -219,6 +219,7 @@ async function run({ file, root, target, args = '', tool }) {
   if (!rt.root) {
     if (!file || !SOURCE_EXT.test(file)) throw new Error('Open a .c or .cpp file (or a file in a CMake project) first');
     if (tool === 'valgrind') return valgrindSingle({ file, args });
+    if (tool === 'tsan') return tsanSingle({ file, args });
     const r = await buildSingle({ file });
     if (r.code !== 0) return { ok: false, ...r, output: undefined };
     const term = runProgram({ cwd: path.dirname(file), command: `./${q(path.basename(r.exe))} ${args}`.trim(), title: `run: ${path.basename(r.exe)}`, flags: r.flags });
@@ -226,6 +227,7 @@ async function run({ file, root, target, args = '', tool }) {
   }
   if (rt.failed) return { ok: false, ...rt.failed };
   if (!rt.target) return { ok: false, needTarget: true, root: rt.root, choices: rt.choices };
+  if (tool === 'tsan') throw new Error('ThreadSanitizer runs a single file or the sandbox. For a CMake project, add -fsanitize=thread (instead of address) to its Debug flags.');
   if (tool === 'valgrind') {
     if (!which('valgrind')) throw new Error(`Valgrind is not installed (${hint('valgrind')})`);
     if (/-fsanitize/.test(cacheValue(buildDir(rt.root), 'CMAKE_CXX_FLAGS') || '') || (config.get().build.buildType || 'Debug') === 'Debug') {

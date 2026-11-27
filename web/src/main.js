@@ -60,7 +60,7 @@ const MENUS = [
     { cmd: 'view.toolbar' }, { cmd: 'view.sidebar' }, { cmd: 'view.panel' }, { cmd: 'help.start', label: 'Start screen' },
   ] },
   { label: 'Build', hot: 'B', items: [
-    { cmd: 'build.build' }, { cmd: 'build.run' }, { cmd: 'build.runArgs' }, { sep: true }, { cmd: 'debug.start' }, { cmd: 'debug.toggle' }, { cmd: 'debug.clearAll' }, { cmd: 'debug.panel' }, { cmd: 'build.debug' }, { sep: true }, { cmd: 'build.valgrind' }, { sep: true },
+    { cmd: 'build.build' }, { cmd: 'build.run' }, { cmd: 'build.runArgs' }, { sep: true }, { cmd: 'debug.start' }, { cmd: 'debug.toggle' }, { cmd: 'debug.clearAll' }, { cmd: 'debug.panel' }, { cmd: 'build.debug' }, { sep: true }, { cmd: 'build.valgrind' }, { cmd: 'build.tsan' }, { sep: true },
     { cmd: 'build.configure' }, { cmd: 'build.fresh' }, { cmd: 'build.target' }, { cmd: 'build.pickTarget' }, { sep: true },
     { cmd: 'analyze.tidy' }, { cmd: 'analyze.cppcheck' }, { sep: true },
     { cmd: 'build.nextProblem' }, { cmd: 'build.prevProblem' }, { cmd: 'build.showProblems' },

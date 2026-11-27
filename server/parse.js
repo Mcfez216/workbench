@@ -32,6 +32,14 @@ const CATCH = /^(.+?):(\d+): FAILED:\s*$/;
 const SAN_ERR = /==\d+==\s*ERROR: (AddressSanitizer|LeakSanitizer|ThreadSanitizer|MemorySanitizer):\s*(.*)$/;
 const LEAK = /^(Direct|Indirect) leak of (\d+) byte\(s\) in (\d+) object\(s\) allocated from:/;
 const FRAME = /^\s*#(\d+) 0x[0-9a-f]+ in (.+?) (\/[^\s:]+):(\d+)(?::(\d+))?\s*$/;
+// ThreadSanitizer: "WARNING: ThreadSanitizer: data race (pid=1)", frames
+// without addresses ("#0 operator() /path/race.cpp:7 (prog+0x13e4)"), and
+// two accesses: the one that raced, then "Previous write ... by thread T1"
+const TSAN_WARN = /^WARNING: ThreadSanitizer: (.*?)(?: \(pid=\d+\))?\s*$/;
+const TSAN_FRAME = /^\s*#(\d+) (.+?) (\/[^\s:]+):(\d+)(?::(\d+))? \(/;
+const TSAN_ACCESS = /^\s*(Read|Write|Atomic read|Atomic write) of size \d+ at 0x[0-9a-f]+ by (main thread|thread T\d+)/;
+const TSAN_PREVIOUS = /^\s*Previous (read|write|atomic read|atomic write) of size \d+ at 0x[0-9a-f]+ by (main thread|thread T\d+)/;
+const TSAN_LOCATION = /^\s*Location is (global|heap block|stack of (?:main )?thread)[^']*(?:'([^']+)')?/;
 const UBSAN = /^(.+?):(\d+):(\d+): runtime error: (.*)$/;
 const WATCOM = /^(.+?)\((\d+)\): (Error|Warning|Note)! ([EWN]\d+): (?:col\((\d+)\) )?(.*)$/;
 const SAN_SECTION = /^(freed by thread|previously allocated by thread|allocated by thread)/;
@@ -133,6 +141,29 @@ class OutputParser {
         if (line.trim() || p.extra) this.pending = null;
         else return;
       }
+    }
+
+    // ThreadSanitizer: the access that raced (your line), the other one as a note
+    const tw = line.match(TSAN_WARN);
+    if (tw) { this.tsan = { what: tw[1], stage: 'main', who: '', problem: null }; return; }
+    if (this.tsan) {
+      const t = this.tsan;
+      let mm;
+      if ((mm = line.match(TSAN_ACCESS))) { t.stage = 'main'; t.who = `${mm[1].toLowerCase()} in ${mm[2]}`; return; }
+      if ((mm = line.match(TSAN_PREVIOUS))) { t.stage = 'previous'; t.who = `${mm[1]} in ${mm[2]}`; return; }
+      if ((mm = line.match(TSAN_LOCATION))) { if (t.problem && mm[2] && mm[2] !== '<null>') t.problem.message += `: the variable ${mm[2]}`; return; }
+      const fr = line.match(TSAN_FRAME);
+      if (fr && userFrame(fr[3])) {
+        if (t.stage === 'main' && !t.problem) {
+          t.problem = this.push({ file: fr[3], line: +fr[4], col: fr[5] ? +fr[5] : 1, severity: 'error',
+            message: `TSan: ${t.what} (a ${t.who}, in ${fr[2]})`, source: 'tsan', runtime: true, notes: [] });
+        } else if (t.stage === 'previous' && t.problem && !t.problem.notes.length) {
+          t.problem.notes.push({ file: fr[3], line: +fr[4], col: fr[5] ? +fr[5] : 1, message: `the other access: a ${t.who} (in ${fr[2]})` });
+        }
+        return;
+      }
+      if (/^SUMMARY: ThreadSanitizer/.test(line) || /^={10,}$/.test(line.trim()) && t.problem) { this.tsan = null; return; }
+      if (fr || /^\s*$/.test(line) || /^\s+(Mutex|Thread|Location|#\d)/.test(line)) return;
     }
 
     // sanitizer reports span many lines: the error, then a stack

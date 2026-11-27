@@ -12,6 +12,17 @@ import { h } from './ui.js';
 const R = (id, re, title, what, why, tryThis, q) => ({ id, re, title, what, why, try: tryThis, q });
 
 export const RULES = [
+  // ---- ThreadSanitizer
+  R('tsan-race', /TSan: data race|ThreadSanitizer: data race/, 'A data race between threads',
+    'Two threads used the same memory at the same time, and at least one of them was writing, with nothing to keep them apart.',
+    'Each thread reads the value, changes it and writes it back. When two do that at once, one of the changes is lost: the total comes out different on each run. In C and C++ a data race is undefined behaviour, not just a wrong number: the compiler may assume it never happens. The two lines are the one in Problems and the "other access" note under it.',
+    'Protect the shared value: a std::mutex (lock it around every use, std::lock_guard does it for you), or make it std::atomic<long> (_Atomic in C) for a simple counter. Better still, give each thread its own variable and add them up after join().',
+    'What is a data race, and two ways to stop one?'),
+  R('tsan-deadlock', /lock-order-inversion|potential deadlock/, 'Two locks taken in different orders',
+    'One thread locks A then B; another locks B then A. If each gets its first lock, both wait forever: a deadlock.',
+    'ThreadSanitizer noticed the two orders, even if this run got lucky and didn\'t hang.',
+    'Always take the locks in the same order everywhere, or take them together with std::scoped_lock(a, b).',
+    'How can two threads deadlock, and how does locking order prevent it?'),
   // ---- C++23 modules: import std;
   R('cpp-std-module', /module '?std(\.compat)?'? not found|unknown module 'std|failed to read module 'std|fatal error: module 'std'|import std.*needs/, 'import std; needs the std module built first',
     'Your code says import std;, and the compiler couldn\'t find the standard library as a module.',

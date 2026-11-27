@@ -228,7 +228,7 @@ async function withTarget(method, extra = {}) {
   const ctx = await context();
   await saveAll();
   const remembered = async (root) => (root ? call('state.get', { key: `run.target:${root}` }) : null);
-  startRun(method === 'cmake.debug' || method === 'dbg.start' ? 'Building for the debugger' : extra.tool === 'valgrind' ? 'Building for Valgrind' : 'Build and run');
+  startRun(method === 'cmake.debug' || method === 'dbg.start' ? 'Building for the debugger' : extra.tool === 'valgrind' ? 'Building for Valgrind' : extra.tool === 'tsan' ? 'Building with ThreadSanitizer' : 'Build and run');
   let r = await call(method, { file: ctx.file, ...extra });
   if (r.needTarget) {
     let name = await remembered(r.root);
@@ -251,6 +251,11 @@ async function run(args) {
 async function valgrind() {
   if (tabs.active()?.id === 'sandbox') return runSandbox('valgrind');
   try { return await withTarget('cmake.run', { tool: 'valgrind' }); }
+  catch (err) { status.set('build', ''); toast(err.message, 'error', 9000); return null; }
+}
+async function tsan() {
+  if (tabs.active()?.id === 'sandbox') return runSandbox('tsan');
+  try { return await withTarget('cmake.run', { tool: 'tsan' }); }
   catch (err) { status.set('build', ''); toast(err.message, 'error', 9000); return null; }
 }
 async function runWithArgs() {
@@ -317,6 +322,7 @@ const SNIPPETS = {
   'Break it: one past the end (ASan)': '#include <iostream>\n#include <vector>\n\nint main() {\n    std::vector<int> v(4);\n    for (std::size_t i = 0; i <= v.size(); ++i)   // <= : one too many\n        v[i] = static_cast<int>(i);\n    std::cout << v[0] << \'\\n\';\n    return 0;\n}\n',
   'Break it: no virtual destructor (ASan)': '#include <iostream>\n#include <memory>\n#include <string>\n\nstruct Shape {\n    ~Shape() {}   // not virtual: deleting a Circle through a Shape* is undefined\n};\nstruct Circle : Shape {\n    std::string name = "a circle with a long enough name to need the heap";\n};\n\nint main() {\n    Shape* s = new Circle;\n    delete s;     // only ~Shape runs; the Circle part leaks or worse\n    std::cout << "done\\n";\n    return 0;\n}\n',
   'Break it: signed overflow (UBSan)': '#include <climits>\n#include <iostream>\n\nint main() {\n    int big = INT_MAX;\n    big += 1;     // undefined: int doesn\'t wrap\n    std::cout << big << \'\\n\';\n    return 0;\n}\n',
+  'Break it: a data race (ThreadSanitizer: press Races)': "#include <iostream>\n#include <thread>\n#include <vector>\n\n// Four threads add to one counter with no lock: a data race.\n// Run it a few times: the total changes. Then press \"Races\" (ThreadSanitizer).\nlong counter = 0;\n\nint main() {\n    std::vector<std::thread> threads;\n    for (int t = 0; t < 4; ++t)\n        threads.emplace_back([] { for (int i = 0; i < 100000; ++i) ++counter; });\n    for (auto& th : threads) th.join();\n    std::cout << counter << \" (should be 400000)\\n\";\n    // the fix: std::atomic<long> counter{0}; or a std::mutex around ++counter\n}\n",
   'Break it: a leak (LeakSanitizer)': '#include <iostream>\n\nint main() {\n    int* data = new int[100];\n    data[0] = 1;\n    std::cout << data[0] << \'\\n\';\n    return 0;     // no delete[]: reported when the program ends\n}\n',
 };
 
@@ -337,6 +343,7 @@ const SNIPPETS_C = {
   'Break it: signed overflow (UBSan)': '#include <limits.h>\n#include <stdio.h>\n\nint main(void) {\n    int big = INT_MAX;\n    big += 1;   /* undefined: int doesn\'t wrap */\n    printf("%d\\n", big);\n    return 0;\n}\n',
   'Break it: uninitialised read (Valgrind)': '#include <stdio.h>\n#include <stdlib.h>\n\n/* ASan can\'t see this one: run it with the Valgrind button. */\nint main(void) {\n    int *a = malloc(4 * sizeof *a);\n    if (a == NULL) return 1;\n    a[0] = 1;   /* a[1] is never set */\n    if (a[1] > 0) printf("positive\\n"); else printf("not positive\\n");\n    free(a);\n    return 0;\n}\n',
   'Fuzz me: a length-prefixed name (Security → Fuzz)': '/* A fuzz target: libFuzzer calls this with generated inputs. The first\n * byte says how long the name is... and nobody checks it against the buffer.\n * Security -> Fuzz this file finds it in seconds; then fix it and fuzz again. */\n#include <stddef.h>\n#include <stdint.h>\n#include <string.h>\n\nstruct record { char name[8]; int id; };\n\nstatic int parse(const uint8_t *data, size_t size, struct record *out) {\n    if (size < 1) return -1;\n    size_t len = data[0];\n    if (len > size - 1) len = size - 1;\n    memcpy(out->name, data + 1, len);   /* len can be up to 255 */\n    out->id = (int)size;\n    return 0;\n}\n\nint LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {\n    struct record r;\n    if (parse(data, size, &r) == 0 && r.name[0] == \'!\') return 1;\n    return 0;\n}\n',
+  'Break it: a data race (ThreadSanitizer: press Races)': "#include <pthread.h>\n#include <stdio.h>\n\n/* Four threads add to one counter with no lock: a data race.\n   Run it a few times: the total changes. Then press \"Races\" (ThreadSanitizer). */\nstatic long counter = 0;\n\nstatic void *work(void *arg) {\n    (void)arg;\n    for (int i = 0; i < 100000; i++) counter++;\n    return NULL;\n}\n\nint main(void) {\n    pthread_t t[4];\n    for (int i = 0; i < 4; i++) pthread_create(&t[i], NULL, work, NULL);\n    for (int i = 0; i < 4; i++) pthread_join(t[i], NULL);\n    printf(\"%ld (should be 400000)\\n\", counter);\n    /* the fix: _Atomic long counter; or a pthread_mutex_t around counter++ */\n    return 0;\n}\n",
   'Break it: a leak (LeakSanitizer)': '#include <stdio.h>\n#include <stdlib.h>\n\nint main(void) {\n    int *data = malloc(100 * sizeof *data);\n    if (data == NULL) return 1;\n    data[0] = 1;\n    printf("%d\\n", data[0]);\n    return 0;   /* no free: reported when the program ends */\n}\n',
 };
 // Rust: the basics, then the same kinds of bug as the C and C++ "break it"
@@ -397,6 +404,8 @@ function openSandbox(snippetName) {
       this.opt = sel(['-O0', '-O1', '-O2', '-O3', '-Os'].map((o) => [o, o]), '-O1', 'Optimisation for the assembly view');
       const runBtn = h('button', { class: 'btn primary', type: 'button', title: 'Compile with the sanitizers on and run (Ctrl+F9)' }, 'Compile & run');
       const vgBtn = h('button', { class: 'btn', type: 'button', title: 'Compile without the sanitizers and run under Valgrind: leaks, uninitialised reads, bad frees' }, 'Valgrind');
+      const tsanBtn = h('button', { class: 'btn', type: 'button', title: 'Run with ThreadSanitizer: data races between threads (Linux and WSL)' }, 'Races');
+      tsanBtn.addEventListener('click', () => runSandbox('tsan'));
       const asmBtn = h('button', { class: 'btn', type: 'button', title: 'What the compiler made of it (Ctrl+Shift+A)', 'aria-pressed': 'false' }, 'Assembly');
       this.asmBtn = asmBtn;
       this.fileLabel = h('span', { class: 'sb-file' });
@@ -406,8 +415,8 @@ function openSandbox(snippetName) {
       const fuzzBtn = h('button', { class: 'btn', type: 'button', title: 'Fuzz it with libFuzzer (needs LLVMFuzzerTestOneInput: see the "Fuzz me" example)' }, 'Fuzz');
       fuzzBtn.addEventListener('click', () => runCommand('security.fuzz'));
       this.flagsLabel = h('span', { class: 'muted small grow flags', title: 'Compiled with these flags (Settings → Sandbox flags)' }, FLAGS.cpp);
-      this.cOnly = [vgBtn, memBtn, fuzzBtn];   // Valgrind, the memory view and libFuzzer are for C and C++
-      el.append(h('div', { class: 'toolbar' }, this.fileLabel, this.langSwitch, this.pick, this.compiler, this.std, runBtn, vgBtn, memBtn, fuzzBtn, asmBtn, this.opt, this.flagsLabel));
+      this.cOnly = [vgBtn, tsanBtn, memBtn, fuzzBtn];   // Valgrind, the memory view and libFuzzer are for C and C++
+      el.append(h('div', { class: 'toolbar' }, this.fileLabel, this.langSwitch, this.pick, this.compiler, this.std, runBtn, vgBtn, tsanBtn, memBtn, fuzzBtn, asmBtn, this.opt, this.flagsLabel));
       this.host = h('div', { class: 'editor-host' });
       this.asmHost = h('div', { class: 'editor-host asm-host', hidden: true });
       this.asmLine = h('span', { class: 'asm-line' });
@@ -529,12 +538,12 @@ export { langSwitch };
 async function runSandbox(tool) {
   const t = tabs.get('sandbox');
   if (!t || !t.view) return;
-  startRun(tool === 'valgrind' ? 'Sandbox under Valgrind' : 'Sandbox');
+  startRun(tool === 'valgrind' ? 'Sandbox under Valgrind' : tool === 'tsan' ? 'Sandbox with ThreadSanitizer' : 'Sandbox');
   let r;
   try { r = await call('sandbox.run', { source: t.view.state.doc.toString(), compiler: t.compiler.value, std: t.std.value, lang: t.langId, tool }); }
   catch (err) { status.set('build', ''); return toast(err.message, 'error', 8000); }
   sandboxFiles.add(r.file);
-  finishRun(r, tool === 'valgrind' ? 'Sandbox: running under Valgrind' : 'Sandbox: compiled, running', 'Sandbox: compile failed');
+  finishRun(r, tool === 'valgrind' ? 'Sandbox: running under Valgrind' : tool === 'tsan' ? 'Sandbox: running with ThreadSanitizer' : 'Sandbox: compiled, running', 'Sandbox: compile failed');
   const doc = t.view.state.doc;
   const diags = (r.problems || []).filter((p) => p.line > 0 && p.file === r.file).map((p) => {
     const l = doc.line(Math.min(p.line, doc.lines));
@@ -579,6 +588,7 @@ export function initBuild() {
   command('build.run', 'Build and run', ['Ctrl+F9'], () => run());
   command('build.runArgs', 'Run with arguments...', [], runWithArgs);
   command('build.valgrind', 'Run under Valgrind (memcheck)', [], valgrind);
+  command('build.tsan', 'Run with ThreadSanitizer (data races between threads)', [], tsan);
   command('build.pickTarget', 'Change which program runs...', [], async () => {
     const ctx = await context();
     const r = await call('cmake.targets', { file: ctx.file || ctx.dir });
