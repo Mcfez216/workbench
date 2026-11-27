@@ -137,6 +137,8 @@ function readModel(root) {
 }
 
 async function targets({ root, file }) {
+  const mk = makeFor({ file, root });
+  if (mk) return { root: mk, configured: true, kind: 'make', targets: require('./make').programs(mk).map((p) => ({ name: p.name, type: 'executable', kind: 'program', sources: [], dirRel: path.dirname(p.name), artifact: p.path })) };
   if (cargoFor({ file, root })) {
     const r = root || require('./rust').cargoRoot(file);
     const m = await require('./rust').metadata(r);
@@ -181,12 +183,23 @@ function rustFor({ file, dir, root }) {
 // The same, but only a real Cargo project (tests, targets, the Tests sidebar)
 function cargoFor(args) { const r = rustFor(args); return r && require('./rust').cargoRoot(r) === r ? r : null; }
 
+// A Makefile project (make.js): a Makefile, and no CMakeLists.txt in charge
+function makeFor({ file, dir, root }) {
+  const mk = require('./make');
+  if (root) return !fs.existsSync(path.join(root, 'CMakeLists.txt')) && mk.makefileIn(root) ? root : null;
+  const start = file || dir;
+  if (!start || cmakeRoot(start)) return null;
+  return mk.makeRoot(start);
+}
+
 // ------------------------------------------------------------------ build
 // F9: CMake when the file (or the workspace) is in a CMake project,
 // otherwise the one file with g++.
 async function build({ file, dir, target, root }) {
   const rs = rustFor({ file, dir, root });
   if (rs) return require('./rust').build({ file, dir: dir || root, target });
+  const mk = makeFor({ file, dir, root });
+  if (mk) return require('./make').build({ root: mk });
   root = root || cmakeRoot(file || dir);
   if (!root) return buildSingle({ file });
   const pre = await ensureConfigured(root);
@@ -215,6 +228,11 @@ async function resolveTarget({ file, root, target }) {
 // terminal (it can read std::cin there) from the project folder.
 async function run({ file, root, target, args = '', tool }) {
   if (rustFor({ file, root })) return require('./rust').run({ file, dir: root, target, args });
+  const mk = makeFor({ file, root });
+  if (mk) {
+    if (tool) throw new Error(`In a Makefile project, ${tool === 'tsan' ? 'ThreadSanitizer' : 'Valgrind'} needs the Makefile's flags changed: run a single file or the sandbox with it instead`);
+    return require('./make').run({ root: mk, target, args });
+  }
   const rt = await resolveTarget({ file, root, target });
   if (!rt.root) {
     if (!file || !SOURCE_EXT.test(file)) throw new Error('Open a .c or .cpp file (or a file in a CMake project) first');
@@ -248,6 +266,15 @@ async function run({ file, root, target, args = '', tool }) {
 // (note 4.03: the ASan-under-gdb conflict); ASan itself stays on.
 async function debug({ file, line, root, target, args = '', prepare = false }) {
   if (rustFor({ file, root })) return require('./rust').debug({ file, line, target, args, prepare });
+  const mk = makeFor({ file, root });
+  if (mk) {
+    const p = await require('./make').debugPrepare({ root: mk, target, file });
+    if (prepare || !p.ok) return p;
+    const stop = file && line ? `break ${file}:${line}` : 'break main';
+    const argv = [p.gdb, '-q', '-ex', 'set pagination off', '-ex', stop, '-ex', 'run', '--args', p.exe, ...String(args).split(/\s+/).filter(Boolean)];
+    const term = pty.open({ cwd: mk, title: `gdb: ${p.target}`, argv, env: { ASAN_OPTIONS: 'detect_leaks=0' } });
+    return { ok: true, ...p, terminal: term, breakpoint: stop.slice(6) };
+  }
   const rt = await resolveTarget({ file, root, target });
   if (!rt.root) {
     if (file && SOURCE_EXT.test(file)) return debugSingle({ file, line, args, prepare });
@@ -266,6 +293,8 @@ async function debug({ file, line, root, target, args = '', prepare = false }) {
 
 // ------------------------------------------------------------------ CTest
 async function ctestList({ root, file }) {
+  const mk = makeFor({ file, root });
+  if (mk) return require('./make').testList({ root: mk });
   if (cargoFor({ file, root })) return require('./rust').testList({ root: root || require('./rust').cargoRoot(file) });
   root = root || cmakeRoot(file);
   if (!root || !isConfigured(root)) return { root, tests: [], configured: false };
@@ -285,6 +314,8 @@ async function ctestList({ root, file }) {
 // Runs every test, or the ones picked by number (index in ctestList),
 // telling the window about each result as it lands.
 async function ctestRun({ root, file, indexes, buildFirst = true }) {
+  const mk = makeFor({ file, root });
+  if (mk) return require('./make').testRun({ root: mk });
   if (cargoFor({ file, root })) return require('./rust').testRun({ root: root || require('./rust').cargoRoot(file), indexes });
   root = root || cmakeRoot(file);
   if (!root) throw new Error('No CMake project here');
@@ -357,6 +388,7 @@ async function projectsList({ root, file }) {
   const rs = cargoFor({ file, root });
   if (rs) return require('./rust').projectsList({ root: rs });
   const t = await targets({ root, file });
+  if (t.kind === 'make') return { root: t.root, configured: true, projects: [] };
   if (!t.configured) return { root: t.root, configured: false, projects: [] };
   return { root: t.root, configured: true, projects: projectsFrom(readModel(t.root)) };
 }
@@ -381,12 +413,14 @@ async function projectRun({ root, id, testName }) {
 function init(a) {
   api = a;
   a.register('cmake.root', ({ file, dir }) => {
+    const mk = makeFor({ file, dir });
+    if (mk) return { root: mk, build: mk, configured: true, kind: 'make' };
     const rs = cargoFor({ file, dir });
     if (rs) return { root: rs, build: path.join(rs, 'target'), configured: true, kind: 'cargo' };
     const root = cmakeRoot(file || dir);
     return { root, build: root ? buildDir(root) : null, configured: root ? isConfigured(root) : false };
   });
-  a.register('cmake.configure', ({ root, file, fresh }) => (cargoFor({ file, root }) ? { kind: 'configure', code: 0, problems: [], cargo: true } : configure({ root: root || cmakeRoot(file), fresh })));
+  a.register('cmake.configure', ({ root, file, fresh }) => (cargoFor({ file, root }) ? { kind: 'configure', code: 0, problems: [], cargo: true } : makeFor({ file, root }) ? { kind: 'configure', code: 0, problems: [], make: true } : configure({ root: root || cmakeRoot(file), fresh })));
   a.register('cmake.targets', targets);
   a.register('cmake.build', build);
   a.register('cmake.run', run);

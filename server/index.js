@@ -67,7 +67,7 @@ function broadcast(ev, d) {
 const api = { register, broadcast, config, onExit: [] };
 
 function loadModules() {
-  for (const m of ['files', 'pty', 'build', 'cmake', 'cp', 'git', 'guides', 'irc', 'mail', 'lsp', 'state', 'project', 'exercises', 'security', 'memviz', 'rust', 'debugger', 'tracks', 'libraries', 'coverage']) {
+  for (const m of ['files', 'pty', 'build', 'cmake', 'cp', 'git', 'guides', 'irc', 'mail', 'lsp', 'state', 'project', 'exercises', 'security', 'memviz', 'rust', 'debugger', 'tracks', 'libraries', 'coverage', 'make']) {
     require('./' + m).init(api);
   }
   // Music on Windows (WSL): YouTube Music in its own Microsoft Edge app window

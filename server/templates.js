@@ -21,6 +21,61 @@ const KINDS = {
   game: { label: 'Game window', langs: ['c', 'cpp', 'rust'] },
   web: { label: 'Web server', langs: ['cpp', 'rust'] },
   bench: { label: 'Benchmarks', langs: ['c', 'cpp', 'rust'] },
+  makefile: { label: 'Makefile project', langs: ['c', 'cpp'] },
+};
+
+// A Makefile that explains itself: the rules most C projects use
+const MAKEFILE = (id, lang) => {
+  const c = lang === 'c';
+  const CC = c ? 'CC' : 'CXX', FL = c ? 'CFLAGS' : 'CXXFLAGS', ext = c ? 'c' : 'cpp';
+  return `# ${id}: built with make. F9 runs make, Ctrl+F9 runs build/${id}, F7 runs make test.
+#
+# How make works: each rule is "target: what it needs", then the commands
+# (each indented with a TAB, not spaces) that make the target. make only
+# rebuilds a target when something it needs is newer than it.
+
+${CC}      = ${c ? 'gcc' : 'g++'}
+${FL}  = -std=${c ? 'c17' : 'c++20'} -Wall -Wextra -g -O0 -Iinclude -MMD -MP
+# AddressSanitizer and UBSan, as in the course (take these two lines out for
+# Valgrind, or for gcc on Windows, which has no sanitizer runtime)
+${FL} += -fsanitize=address,undefined -fno-omit-frame-pointer
+LDFLAGS += -fsanitize=address,undefined
+
+SRC = $(wildcard src/*.${ext})
+OBJ = $(SRC:src/%.${ext}=build/%.o)
+BIN = build/${id}
+
+# the first rule is what plain "make" builds
+all: $(BIN)
+
+# link: the program needs every object file
+$(BIN): $(OBJ)
+	$(${CC}) $(LDFLAGS) -o $@ $^
+
+# compile: each .o comes from its .${ext} ($< is the source, $@ the target);
+# -MMD writes a .d file listing the headers it used, so editing a header
+# rebuilds what includes it
+build/%.o: src/%.${ext} | build
+	$(${CC}) $(${FL}) -c -o $@ $<
+
+build:
+	mkdir -p build
+
+run: $(BIN)
+	./$(BIN)
+
+# a tiny test: the program must say hello
+test: $(BIN)
+	@./$(BIN) | grep -q "Hello" && echo "test passed" || (echo "test failed"; exit 1)
+
+clean:
+	rm -rf build
+
+-include $(OBJ:.o=.d)
+
+# these are names of jobs, not files
+.PHONY: all run test clean
+`;
 };
 
 // ------------------------------------------------------------------ cli
@@ -641,6 +696,13 @@ function apply(files, { id, lang, kind }) {
   if (!k.langs.includes(lang)) throw new Error(`${k.label}: ${k.langs.map((l) => ({ c: 'C', cpp: 'C++', rust: 'Rust' }[l])).join(' or ')} only`);
   const ext = { c: 'c', cpp: 'cpp', rust: 'rs' }[lang];
   const main = `src/main.${ext}`;
+  if (kind === 'makefile') {   // the plain program, built with make
+    delete files['CMakeLists.txt'];
+    files.Makefile = MAKEFILE(id, lang);
+    files['.gitignore'] = 'build/\n';
+    files['README.md'] = `# ${id}\n\nA ${lang === 'c' ? 'C' : 'C++'} program built with make. In MHDE: F9 builds (make), Ctrl+F9 runs it, F7 runs \`make test\`, Ctrl+Shift+D debugs.\n\nFrom a terminal:\n\n\`\`\`bash\nmake\nmake run\nmake test\nmake clean\n\`\`\`\n\nThe Makefile explains each rule.\n`;
+    return files;
+  }
   const T = { cli: [CLI_C, CLI_CPP, CLI_RS], game: [GAME_C, GAME_CPP, GAME_RS], web: [null, WEB_CPP, WEB_RS], bench: [BENCH_C, BENCH_CPP, BENCH_RS] }[kind];
   files[main] = T[['c', 'cpp', 'rust'].indexOf(lang)](id);
   const readme = (extra) => { files['README.md'] = `${files['README.md'].trimEnd()}\n\n## ${k.label}\n\n${extra}\n`; };

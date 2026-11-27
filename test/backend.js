@@ -842,6 +842,36 @@ async function test(name, fn) {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  await test('Makefile projects: F9 runs make, F7 runs make test, the program it made is found, and the debugger can use it', async () => {
+    for (const lang of ['c', 'cpp']) {
+      const dir = fs.mkdtempSync(path.join(HOME, 'mk-'));
+      const r = await call('project.create', { dir, name: 'hello_make', lang, kind: 'makefile', git: false });
+      assert.ok(fs.existsSync(path.join(r.root, 'Makefile')) && !fs.existsSync(path.join(r.root, 'CMakeLists.txt')));
+      assert.match(fs.readFileSync(path.join(r.root, 'Makefile'), 'utf8'), /^\t\$\(CC{0,2}X{0,2}\) \$\(LDFLAGS\)/m, 'recipes start with a tab');
+      const root = await call('cmake.root', { file: r.main });
+      assert.strictEqual(root.kind, 'make');
+      const b = await call('build.build', { file: r.main });
+      assert.strictEqual(b.code, 0, JSON.stringify(b.problems).slice(0, 400));
+      assert.strictEqual(b.kind, 'make');
+      const exe = path.join(r.root, 'build', 'hello_make');
+      assert.match(require('child_process').execFileSync(exe, { encoding: 'utf8' }), /Hello/);
+      const tl = await call('ctest.list', { root: root.root });
+      assert.deepStrictEqual(tl.tests.map((t) => t.name), ['make test']);
+      const tr = await call('ctest.run', { root: root.root });
+      assert.strictEqual(tr.summary.failed, 0);
+      const tg = await call('cmake.targets', { root: root.root });
+      assert.deepStrictEqual(tg.targets.map((t) => t.name), ['build/hello_make']);
+      const d = await call('cmake.debug', { file: r.main, prepare: true });
+      assert.ok(d.ok && d.exe === exe, JSON.stringify(d).slice(0, 300));
+      // a compile error lands in Problems
+      fs.appendFileSync(r.main, '\nint broken( { \n');
+      const bad = await call('build.build', { file: r.main });
+      assert.notStrictEqual(bad.code, 0);
+      assert.ok(bad.problems.some((p) => p.severity === 'error' && p.file === r.main), JSON.stringify(bad.problems).slice(0, 300));
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   await test('course vaults: copied to ~/Notes on the first start; new notes later, your edits never replaced', async () => {
     const { execFileSync } = require('child_process');
     const home = fs.mkdtempSync(path.join(HOME, 'first-'));
