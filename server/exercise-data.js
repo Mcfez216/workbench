@@ -943,3 +943,4 @@ for (const ex of module.exports) if (ex.kind === 'ctf') ex.flagHash = FLAG_HASHE
 // The Rust exercises live in their own file
 module.exports.push(...require('./exercise-data-rust'));
 module.exports.push(...require('./exercise-data-rust-more'));
+module.exports.push(...require('./exercise-data-cc'));
