@@ -19,6 +19,7 @@ import { initTracks } from './tracks.js';
 import { initLibraries } from './libraries.js';
 import { initCoverage } from './coverage.js';
 import { initDrills } from './drills.js';
+import { initAsmCompare } from './asmcompare.js';
 import { initCompare } from './compare.js';
 import { initReference } from './reference.js';
 import { initSecurity } from './security.js';
@@ -328,7 +329,7 @@ async function boot() {
   buildShell(root, FKEYS);
   initEditorCommands(); initFiles(); initExercises(); initOutline(); initTerminal(); initBuild(); initTests(); initJudge(); initGit(); initGuides(); initNotes(); initRevise();
   await initIrc(); initMail(); initMusic(); initSettings(); initWelcome(); initPalette(); initNewStuff(); initStart();
-  initComfort(); initProgress(); initMemviz(); initDebugger(); initTracks(); initLibraries(); initCoverage(); initDrills(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
+  initComfort(); initProgress(); initMemviz(); initDebugger(); initTracks(); initLibraries(); initCoverage(); initDrills(); initAsmCompare(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
   applyComfort(cfg);
   menubar.build(MENUS);
   toolbar.build(TOOLBAR);

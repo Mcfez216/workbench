@@ -407,6 +407,8 @@ function openSandbox(snippetName) {
       const tsanBtn = h('button', { class: 'btn', type: 'button', title: 'Run with ThreadSanitizer: data races between threads (Linux and WSL)' }, 'Races');
       tsanBtn.addEventListener('click', () => runSandbox('tsan'));
       const asmBtn = h('button', { class: 'btn', type: 'button', title: 'What the compiler made of it (Ctrl+Shift+A)', 'aria-pressed': 'false' }, 'Assembly');
+      const cmpBtn = h('button', { class: 'btn', type: 'button', title: 'The assembly two ways, side by side: gcc against clang, -O0 against -O2' }, 'Compare');
+      cmpBtn.addEventListener('click', () => import('./asmcompare.js').then((m) => m.openCompare()));
       this.asmBtn = asmBtn;
       this.fileLabel = h('span', { class: 'sb-file' });
       this.langSwitch = langSwitch();
@@ -415,8 +417,8 @@ function openSandbox(snippetName) {
       const fuzzBtn = h('button', { class: 'btn', type: 'button', title: 'Fuzz it with libFuzzer (needs LLVMFuzzerTestOneInput: see the "Fuzz me" example)' }, 'Fuzz');
       fuzzBtn.addEventListener('click', () => runCommand('security.fuzz'));
       this.flagsLabel = h('span', { class: 'muted small grow flags', title: 'Compiled with these flags (Settings → Sandbox flags)' }, FLAGS.cpp);
-      this.cOnly = [vgBtn, tsanBtn, memBtn, fuzzBtn];   // Valgrind, the memory view and libFuzzer are for C and C++
-      el.append(h('div', { class: 'toolbar' }, this.fileLabel, this.langSwitch, this.pick, this.compiler, this.std, runBtn, vgBtn, tsanBtn, memBtn, fuzzBtn, asmBtn, this.opt, this.flagsLabel));
+      this.cOnly = [vgBtn, tsanBtn, memBtn, fuzzBtn, cmpBtn];   // Valgrind, the memory view and libFuzzer are for C and C++
+      el.append(h('div', { class: 'toolbar' }, this.fileLabel, this.langSwitch, this.pick, this.compiler, this.std, runBtn, vgBtn, tsanBtn, memBtn, fuzzBtn, asmBtn, cmpBtn, this.opt, this.flagsLabel));
       this.host = h('div', { class: 'editor-host' });
       this.asmHost = h('div', { class: 'editor-host asm-host', hidden: true });
       this.asmLine = h('span', { class: 'asm-line' });

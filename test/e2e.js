@@ -695,6 +695,21 @@ async function main() {
       await page.keyboard.press('Control+W');
     });
 
+    await step('compare the assembly: the sandbox\'s code at -O0 and -O2 side by side, instructions per function', async () => {
+      await page.keyboard.press('F4');
+      await page.waitForSelector('.tab.active:has-text("sandbox")');
+      await page.waitForTimeout(500);
+      await page.locator('.tab-page.active .toolbar .btn', { hasText: /^Compare$/ }).click();
+      await page.waitForSelector('.asmcmp-table td', { timeout: 60000 });
+      assert.strictEqual(await page.locator('.asmcmp-code').count(), 2);
+      assert.match(await page.locator('.asmcmp-tools').first().innerText(), /\d+ instructions/);
+      assert.match(await page.locator('.asmcmp-table').innerText(), /main/);
+      await shot('26-asm-compare');
+      await page.locator('.tab', { hasText: 'Compare: assembly' }).locator('.tab-close').click();
+      await page.locator('.tab', { hasText: 'sandbox' }).first().click();
+      await page.keyboard.press('Control+W');
+    });
+
     await step('the palette runs anything by name; New file makes a C program; the outline lists it', async () => {
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');
