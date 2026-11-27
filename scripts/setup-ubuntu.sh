@@ -4,20 +4,24 @@
 #
 #   bash scripts/setup-ubuntu.sh               packages; says what to do about Node.js
 #   bash scripts/setup-ubuntu.sh --with-node   also installs Node.js 22 from NodeSource
+#   bash scripts/setup-ubuntu.sh --with-rust   also installs Rust with rustup (rustc, cargo,
+#                                              rust-analyzer, clippy, rustfmt) for your user
 #   bash scripts/setup-ubuntu.sh --with-dos    also DOSBox-X (note 0.4; Open Watcom is
 #                                              the vault's scripts/install-open-watcom.sh)
 #   bash scripts/setup-ubuntu.sh --dry-run     shows what apt would do, changes nothing
 #
 # READ IT FIRST: it runs sudo apt-get. Everything comes from Ubuntu's own
-# archive, except Node.js with --with-node (NodeSource's apt repository).
+# archive, except Node.js with --with-node (NodeSource's apt repository) and
+# Rust with --with-rust (rustup, from static.rust-lang.org, into ~/.cargo).
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP=cpp-path-workbench
-WITH_NODE=0 WITH_DOS=0 DRY=0
+WITH_NODE=0 WITH_DOS=0 WITH_RUST=0 DRY=0
 for a in "$@"; do
 	case "$a" in
 		--with-node) WITH_NODE=1 ;;
+		--with-rust) WITH_RUST=1 ;;
 		--with-dos) WITH_DOS=1 ;;
 		--dry-run) DRY=1 ;;
 		-h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
@@ -47,6 +51,7 @@ packages=(
 	clang clangd clang-tidy clang-format	# clangd: completion and errors as you type
 	cppcheck valgrind git ripgrep python3
 	libclang-rt-dev				# clang's fuzzing (libFuzzer) and sanitizer libraries
+	libc++-dev libc++abi-dev		# libc++, with the std module: import std; (C++23) with clang++
 
 	# --- the app itself: passwords in a keyring, the bin, man pages, links ---
 	libsecret-tools gnome-keyring dbus-x11	# secret-tool and a keyring to keep the passwords in
@@ -143,6 +148,26 @@ if [ $WSL = 1 ]; then
 	esac
 	echo "Passwords: the first time the app stores one, a window should ask you to choose a"
 	echo "password for a new keyring. After each WSL restart it may ask for it again."
+fi
+
+# --- Rust: rustup, for your own user (no sudo). Ubuntu's own rustc is too old
+# for the 2024 edition the Rust vault uses.
+if [ $WITH_RUST = 1 ]; then
+	say "Rust (rustup: rustc, cargo, rust-analyzer, clippy, rustfmt)"
+	[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+	if command -v rustup >/dev/null 2>&1; then
+		echo "rustup is already here: updating"
+		[ $DRY = 1 ] || { rustup update stable && rustup component add rust-analyzer clippy rustfmt; }
+	elif [ $DRY = 1 ]; then
+		echo "Would download https://sh.rustup.rs and run it with -y --profile default --component rust-analyzer"
+	else
+		tmp="$(mktemp)"
+		curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o "$tmp"
+		sh "$tmp" -y --profile default --component rust-analyzer
+		rm -f "$tmp"
+		. "$HOME/.cargo/env"
+	fi
+	command -v rustc >/dev/null 2>&1 && echo "OK: $(rustc --version)" || warn "Rust didn't install: see above."
 fi
 
 say "Next"

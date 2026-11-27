@@ -1,17 +1,26 @@
 # McFez's HomeBrew Development Environment (MHDE)
 
-MHDE is one window for learning and writing **C and C++**: write it, build it with
+MHDE is one window for learning and writing **C, C++ and Rust**: write it, build it with
 CMake (or a lone file with gcc / g++), test it, run it, break it on purpose,
 step through it in gdb or Valgrind, ask two static analyzers about it, judge
 competitive-programming solutions, commit it, read your notes vaults beside
 it, talk about it, revise it, with music on. No plugins: it's all built in.
 
-**C or C++.** The switch at the left of the toolbar (also Ctrl+Shift+J, or
+**C, C++ or Rust.** The switch at the left of the toolbar (also Ctrl+Shift+J, or
 the language on the status line) says what you're working in. New files and
 projects, the sandbox and the judge follow it, with their own compiler and
 standard (gcc / C17 and g++ / C++20 unless you change them in Settings). A
 `.c` file is always C and a `.cpp` file always C++; a `.h` header follows the
-switch.
+switch. A `.rs` file is always Rust: see [Rust](#rust).
+
+**`import std;` works.** C++23's `import std;` (the first line of every
+program in Stroustrup's *Programming: Principles and Practice*, 3rd edition,
+and of its `PPP_support.h`) needs the standard library prebuilt as a module,
+which compilers don't do by themselves ("module 'std' not found"). MHDE
+builds it the first time a lone file or the sandbox needs it (a few seconds),
+keeps it, and links it in: with clang++ and libc++ (llvm-mingw on Windows has
+it; Ubuntu needs `libc++-dev`), or g++ 15 or newer. Older g++ hands the file
+to clang++, and a file below C++23 is built as C++23; a note says so.
 
 It started as the C++ Path Workbench, which was itself the Kernel Path
 Workbench rebuilt around the CPP-Path vault. Its settings and data folders
@@ -60,13 +69,13 @@ retro look.
 
 ## The course vaults
 
-Two Obsidian vaults come with the app, in `vaults/`: **CPP-Path** (C++) and
-**C-Path** (C), a phase-by-phase course each, with runnable examples, check
+Three Obsidian vaults come with the app, in `vaults/`: **CPP-Path** (C++),
+**C-Path** (C) and **Rust-Path** (Rust, 52 notes), a phase-by-phase course each, with runnable examples, check
 yourself questions (they become flashcards), cheat sheets, phase gates and a
 light Star Wars theme. Open either folder in Obsidian, or just start the app:
 
 - On the first start, if you have no vault of your own, the app copies both
-  to `~/Notes/CPP-Path` and `~/Notes/C-Path` and shows them in Guides. You
+  to `~/Notes/CPP-Path`, `~/Notes/C-Path` and `~/Notes/Rust-Path` and shows them in Guides. You
   work in that copy (edit notes, tick boxes, daily notes); the app's own
   `vaults/` is never touched, so updating the app can't overwrite your notes.
 - **Guides → Get new course notes** copies in notes added by an update.
@@ -74,6 +83,32 @@ light Star Wars theme. Open either folder in Obsidian, or just start the app:
   the original back.
 - Already have a vault (your old CPP-Path, say)? The app finds and uses that;
   *Get new course notes* adds the course vaults beside it.
+
+## Rust
+
+Switch to **Rust** and the same keys do the Rust thing:
+
+| | |
+|---|---|
+| **Build / Run** (F9, Ctrl+F9) | a Cargo project (`cargo build`, `cargo run`), or a lone `.rs` file with `rustc --edition 2024`. Errors land in Problems with their code (`E0382`) and the labelled lines under them; **?** on one runs `rustc --explain`. A panic is a red line, like an ASan report. |
+| **Tests** (F7) | `cargo test`: the Tests sidebar lists every `#[test]`, ▶ runs one, click to jump to it. |
+| **Analysis** | Ctrl+Shift+K runs **clippy**; Ctrl+Shift+O formats with **rustfmt**. **rust-analyzer** gives completion, errors as you type, hover, go to definition and rename. |
+| **Debug** | rust-gdb at the cursor's line. |
+| **Sandbox** | a scratch `.rs` with 14 examples (ownership, borrowing, `Option`/`Result`, traits, iterators, and "break it": index out of range, overflow, `unwrap` on `None`...), and its **assembly**. |
+| **Judge** | `.rs` solutions, built with `rustc -O`. |
+| **New project** | a Cargo binary or library with tests. |
+| **Exercises** | eight Rust exercises, from first functions to ownership, enums, errors, traits and I/O. |
+
+The **Rust-Path** vault: Phase 0 (setup, Cargo, reading errors), 1 (the
+basics), 2 (ownership and borrowing), 3 (structs, enums, traits, generics,
+lifetimes), 4 (collections, iterators, closures, `Box`/`Rc`/`RefCell`, modules, tests, clippy), 5 (algorithms)
+and 6 (systems and security: threads, channels, `Mutex` and `Arc`, `unsafe`, calling C, fuzzing), cheat sheets,
+phase gates and five projects. Every example compiles (or doesn't, on
+purpose, and says so).
+
+Rust comes from **rustup**: `bash scripts/setup-ubuntu.sh --with-rust` on
+Ubuntu (the WSL installer does it for you), the Windows (no WSL) installer
+puts it in its tools folder, and on OpenBSD it's the `rust` package.
 
 ## Learning with it
 
@@ -83,7 +118,7 @@ autism, or just tired). All built in; all optional.
 
 | Part | What it does |
 |---|---|
-| **Exercises** | Learn on the toolbar. 20 exercises in four tracks: C basics (functions, loops, arrays, strings, pointers, malloc/realloc/free, structs, input and output), C++ basics (string and vector, a first class, the standard library, algorithms and lambdas), the **security lab** (fix a buffer overflow, integer overflow, use-after-free, a format-string bug, and explain each in your own words) and **capture the flag** (four local puzzles: find a password with `strings`, pull one out with gdb, exploit an overflow, exploit integer wrap-around). Your file opens beside the steps; only the current step is open; **F7** checks it with the sanitizers on and says exactly what came back ("got 4, expected 5"). Hints one at a time; the solution only if you ask. Files live in `~/workbench-exercises`. |
+| **Exercises** | Learn on the toolbar. 28 exercises in five tracks: C basics (functions, loops, arrays, strings, pointers, malloc/realloc/free, structs, input and output), C++ basics (string and vector, a first class, the standard library, algorithms and lambdas), the **security lab** (fix a buffer overflow, integer overflow, use-after-free, a format-string bug, and explain each in your own words) and **capture the flag** (four local puzzles: find a password with `strings`, pull one out with gdb, exploit an overflow, exploit integer wrap-around) and Rust (see [Rust](#rust)). Your file opens beside the steps; only the current step is open; **F7** checks it with the sanitizers on and says exactly what came back ("got 4, expected 5"). Hints one at a time; the solution only if you ask. Files live in `~/workbench-exercises`. |
 | **Progress map** | Every topic as boxes (not started, started, done) and what you did on each of the last four weeks. No streaks, nothing to lose. |
 | **Focus mode** | Ctrl+Shift+G: name the one thing, choose 10, 25 or 45 minutes (or no timer). Everything else hides, messages wait in the inbox. When time's up it asks gently; a break has a countdown and a few ideas. |
 | **Where was I?** | Your last file and line, the last build or test, the exercise and step, and the note you left ("next I'll..."): on the start screen, in Learn, and by itself when you come back after a few hours. |
@@ -214,6 +249,7 @@ its project publishes:
 | w64devkit | gcc, **gdb** (debugging and the memory view), make, and a small Unix shell (busybox: `ls`, `grep`, `cat`...) so the guides' commands work in the terminal |
 | CMake, Ninja, MinGit | projects and git |
 | Node.js | the setup and the app's helpers |
+| Rust (rustup) | rustc, cargo, clippy, rustfmt and rust-analyzer, the GNU toolchain (skip it with `-NoRust`; if it can't download, the rest works without it) |
 
 then the app and its Electron window, and puts **McFez's HomeBrew Development Environment (MHDE)
 (Windows)** in the Start menu. The shortcut starts `electron.exe` directly,
