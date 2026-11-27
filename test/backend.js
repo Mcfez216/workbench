@@ -872,6 +872,22 @@ async function test(name, fn) {
     }
   });
 
+  await test('predict the output: every drill compiles and prints its answer here; a guess is marked right or wrong', async () => {
+    const list = await call('drills.list');
+    assert.ok(list.length >= 24 && list.some((d) => d.lang === 'c') && list.some((d) => d.lang === 'cpp'));
+    assert.ok(!('answer' in list[0]), 'the answer isn\'t sent before you guess');
+    const data = require('../server/drill-data');
+    for (const d of data) {
+      const r = await call('drills.run', { id: d.id, guess: d.answer + '  \n' });
+      assert.ok(r.ok, `${d.id} compiles`);
+      assert.strictEqual(r.output, d.answer, d.id);
+      assert.strictEqual(r.right, true, d.id);
+    }
+    const wrong = await call('drills.run', { id: 'c-int-division', guess: '3.5 -3.5 1' });
+    assert.strictEqual(wrong.right, false);
+    assert.match(wrong.explain, /fraction/);
+  });
+
   await test('course vaults: copied to ~/Notes on the first start; new notes later, your edits never replaced', async () => {
     const { execFileSync } = require('child_process');
     const home = fs.mkdtempSync(path.join(HOME, 'first-'));

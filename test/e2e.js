@@ -676,6 +676,25 @@ async function main() {
       await page.waitForFunction(() => !document.querySelector('.tab-page.active .cm-cov-hit'));
     });
 
+    await step('predict the output: guess, it runs for real, right or wrong with why', async () => {
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('Predict the output');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.tab-page.active .drills .drill-code');
+      await page.locator('.tab-page.active .drills .choice', { hasText: /^C$/ }).click();
+      await page.waitForSelector('.tab-page.active .drill-code:has-text("7 / 2")');
+      await page.locator('.tab-page.active .drill-guess').fill('3.5 -3.5 1');
+      await page.locator('.tab-page.active .btn', { hasText: 'Run it and see' }).click();
+      await page.waitForSelector('.tab-page.active .ex-result:has-text("Not quite")', { timeout: 60000 });
+      assert.match(await page.locator('.tab-page.active .ex-result').innerText(), /It printed\s+3 -3 1/);
+      await shot('25-drills');
+      await page.locator('.tab-page.active .btn', { hasText: 'Next one' }).click();
+      await page.waitForSelector('.tab-page.active .drill-guess');
+      assert.match(await page.locator('.tab-page.active .drills-head').innerText(), /0 of 1 right/);
+      await page.keyboard.press('Control+W');
+    });
+
     await step('the palette runs anything by name; New file makes a C program; the outline lists it', async () => {
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');

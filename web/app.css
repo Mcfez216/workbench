@@ -1018,3 +1018,11 @@ html[data-pixel="yes"] .lib-name { font-weight: normal; color: var(--accent); }
 .cov-bar { width: 10ch; height: 0.7em; background: color-mix(in srgb, var(--error) 35%, transparent); display: inline-block; flex: none; }
 .cov-fill { display: block; height: 100%; background: var(--ok); }
 .cov-pct { width: 5ch; text-align: right; flex: none; }
+
+/* ---- predict the output */
+.drills { max-width: 100ch; }
+.drills-head { display: flex; flex-wrap: wrap; gap: 1em; align-items: center; }
+.drills-head h1 { margin: 0.3em 0; font-weight: normal; color: var(--accent); }
+.drill { margin: 0.8em 0; }
+.drill-code { margin: 0; }
+.drill-guess { width: 100%; box-sizing: border-box; font-family: var(--font); margin-bottom: 0.4em; }

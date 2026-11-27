@@ -18,6 +18,7 @@ import { initDebugger } from './debugger.js';
 import { initTracks } from './tracks.js';
 import { initLibraries } from './libraries.js';
 import { initCoverage } from './coverage.js';
+import { initDrills } from './drills.js';
 import { initCompare } from './compare.js';
 import { initReference } from './reference.js';
 import { initSecurity } from './security.js';
@@ -73,7 +74,7 @@ const MENUS = [
   { label: 'Learn', hot: 'L', items: [
     { cmd: 'learn.show', label: 'Exercises' }, { cmd: 'exercise.check' }, { cmd: 'learn.progress' }, { sep: true },
     { cmd: 'focus.toggle' }, { cmd: 'focus.break' }, { cmd: 'help.where' }, { sep: true },
-    { cmd: 'memviz.open' }, { cmd: 'learn.compare' }, { cmd: 'help.reference' }, { cmd: 'revise.open' }, { sep: true },
+    { cmd: 'memviz.open' }, { cmd: 'learn.compare' }, { cmd: 'learn.drills' }, { cmd: 'help.reference' }, { cmd: 'revise.open' }, { sep: true },
     { cmd: 'journal.open' }, { cmd: 'test.forFunction' },
   ] },
   { label: 'Security', hot: 'c', items: [
@@ -327,7 +328,7 @@ async function boot() {
   buildShell(root, FKEYS);
   initEditorCommands(); initFiles(); initExercises(); initOutline(); initTerminal(); initBuild(); initTests(); initJudge(); initGit(); initGuides(); initNotes(); initRevise();
   await initIrc(); initMail(); initMusic(); initSettings(); initWelcome(); initPalette(); initNewStuff(); initStart();
-  initComfort(); initProgress(); initMemviz(); initDebugger(); initTracks(); initLibraries(); initCoverage(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
+  initComfort(); initProgress(); initMemviz(); initDebugger(); initTracks(); initLibraries(); initCoverage(); initDrills(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
   applyComfort(cfg);
   menubar.build(MENUS);
   toolbar.build(TOOLBAR);
