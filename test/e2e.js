@@ -77,7 +77,7 @@ async function main() {
       assert.ok(await page.locator('.menubar-item.open', { hasText: 'Edit' }).count());
       await page.keyboard.press('Escape');
       await page.locator('.menubar-item', { hasText: 'Build' }).click();
-      assert.ok(await page.locator('.menu-pop .menu-item', { hasText: 'Debug with gdb' }).count());
+      assert.ok(await page.locator('.menu-pop .menu-item', { hasText: 'Debug: start' }).count());
       await shot('02-menu-build');
       await page.keyboard.press('Escape');
     });
@@ -548,6 +548,53 @@ async function main() {
       await sw.locator('.choice', { hasText: /^C\+\+$/ }).click();
     });
 
+    await step('the visual debugger: a breakpoint, Ctrl+Shift+D stops there, F11 steps into square, the variables change, Shift+F5 stops', async () => {
+      await openTree('examples', '03_square.cpp');
+      await page.locator('.tab-page.active .cm-line').first().click();
+      for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowDown');
+      await page.waitForFunction(() => /\b7:\d+/.test(document.querySelector('.st-left').innerText));
+      await page.keyboard.press('Control+F8');
+      await page.waitForSelector('.tab-page.active .cm-bp-dot');
+      // a click in the margin adds one too (and another click takes it away)
+      const g9 = page.locator('.tab-page.active .cm-bp-gutter .cm-gutterElement').nth(9);
+      await g9.click();
+      await page.waitForFunction(() => document.querySelectorAll('.tab-page.active .cm-bp-dot').length === 2);
+      await g9.click();
+      await page.waitForFunction(() => document.querySelectorAll('.tab-page.active .cm-bp-dot').length === 1);
+      await page.keyboard.press('Control+Shift+D');
+      await page.waitForFunction(() => /Stopped at a breakpoint/.test(document.querySelector('.dbg-state')?.innerText || ''), null, { timeout: 120000 });
+      await page.waitForSelector('.tab-page.active .cm-execLine');
+      const vars = () => page.locator('.dbg-vars').innerText();
+      assert.match(await vars(), /total\s+0/);
+      assert.match(await vars(), /i\s+1/);
+      assert.match(await page.locator('.dbg-stack').innerText(), /main/);
+      await shot('21-debugger');
+      await page.keyboard.press('F11');
+      await page.waitForFunction(() => /In square/.test(document.querySelector('.dbg-state')?.innerText || ''), null, { timeout: 30000 });
+      assert.match(await page.locator('.tab.active').innerText(), /mathx\.cpp/);
+      assert.match(await vars(), /x \(parameter\)\s+1/);
+      await page.keyboard.press('Shift+F11');
+      await page.waitForFunction(() => /Returned from the function/.test(document.querySelector('.dbg-state')?.innerText || ''), null, { timeout: 30000 });
+      await page.keyboard.press('F5');
+      await page.waitForFunction(() => /Stopped at a breakpoint/.test(document.querySelector('.dbg-state')?.innerText || '') && /i\s+2/.test(document.querySelector('.dbg-vars')?.innerText || ''), null, { timeout: 30000 });
+      assert.ok(await page.locator('.dbg-vars tr.changed').count() >= 1, 'what changed is marked');
+      await page.locator('.dbg input.field').fill('total * 10');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => /total \* 10 = 10/.test(document.querySelector('.dbg-watches')?.innerText || ''));
+      await page.keyboard.press('Shift+F5');
+      await page.waitForFunction(() => /Not debugging/.test(document.querySelector('.dbg-state')?.innerText || ''), null, { timeout: 30000 });
+      assert.strictEqual(await page.locator('.cm-execLine').count(), 0);
+      // F5 is the terminal again
+      await page.locator('.dbg-watches button').click();
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('remove every breakpoint');
+      await page.waitForSelector('.palette-row.sel:has-text("Remove every breakpoint")');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.querySelectorAll('.cm-bp-dot').length === 0);
+      while (await page.locator('.tab', { hasText: /^mathx\.cpp/ }).count()) await page.locator('.tab', { hasText: /^mathx\.cpp/ }).first().locator('.tab-close').click();
+    });
+
     await step('the palette runs anything by name; New file makes a C program; the outline lists it', async () => {
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');
@@ -649,6 +696,7 @@ async function main() {
     await step('security: hardening compared three ways, and the binary inspector', async () => {
       await page.keyboard.press('F4');
       await page.waitForSelector('.tab.active:has-text("sandbox")');
+      await page.waitForTimeout(500);   // the sandbox takes the focus a moment after it shows
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');
       await page.keyboard.type('three ways');

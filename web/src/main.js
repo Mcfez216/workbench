@@ -14,6 +14,7 @@ import { initExercises } from './exercises.js';
 import { initComfort, applyComfort } from './comfort.js';
 import { initProgress } from './progress.js';
 import { initMemviz } from './memviz.js';
+import { initDebugger } from './debugger.js';
 import { initCompare } from './compare.js';
 import { initReference } from './reference.js';
 import { initSecurity } from './security.js';
@@ -57,7 +58,7 @@ const MENUS = [
     { cmd: 'view.toolbar' }, { cmd: 'view.sidebar' }, { cmd: 'view.panel' }, { cmd: 'help.start', label: 'Start screen' },
   ] },
   { label: 'Build', hot: 'B', items: [
-    { cmd: 'build.build' }, { cmd: 'build.run' }, { cmd: 'build.runArgs' }, { cmd: 'build.debug' }, { cmd: 'build.valgrind' }, { sep: true },
+    { cmd: 'build.build' }, { cmd: 'build.run' }, { cmd: 'build.runArgs' }, { sep: true }, { cmd: 'debug.start' }, { cmd: 'debug.toggle' }, { cmd: 'debug.clearAll' }, { cmd: 'debug.panel' }, { cmd: 'build.debug' }, { sep: true }, { cmd: 'build.valgrind' }, { sep: true },
     { cmd: 'build.configure' }, { cmd: 'build.fresh' }, { cmd: 'build.target' }, { cmd: 'build.pickTarget' }, { sep: true },
     { cmd: 'analyze.tidy' }, { cmd: 'analyze.cppcheck' }, { sep: true },
     { cmd: 'build.nextProblem' }, { cmd: 'build.prevProblem' }, { cmd: 'build.showProblems' },
@@ -130,7 +131,7 @@ const TOOLBAR = [
   { sep: true },
   { cmd: 'build.build', label: 'Build', icon: '≡' },
   { cmd: 'build.run', label: 'Run', icon: '►', primary: true },
-  { cmd: 'build.debug', label: 'Debug', icon: '☼' },
+  { cmd: 'debug.start', label: 'Debug', icon: '☼' },
   { cmd: 'test.all', label: 'Test', icon: '√' },
   { sep: true },
   { cmd: 'sandbox.open', label: 'Sandbox', icon: '◊' },
@@ -322,7 +323,7 @@ async function boot() {
   buildShell(root, FKEYS);
   initEditorCommands(); initFiles(); initExercises(); initOutline(); initTerminal(); initBuild(); initTests(); initJudge(); initGit(); initGuides(); initNotes(); initRevise();
   await initIrc(); initMail(); initMusic(); initSettings(); initWelcome(); initPalette(); initNewStuff(); initStart();
-  initComfort(); initProgress(); initMemviz(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
+  initComfort(); initProgress(); initMemviz(); initDebugger(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
   applyComfort(cfg);
   menubar.build(MENUS);
   toolbar.build(TOOLBAR);

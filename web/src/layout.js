@@ -49,6 +49,15 @@ function onKeyDown(e) {
   if (document.querySelector('.veil')) return;               // a dialog is open
   const name = keyName(e);
   if (!name) return;
+  // keys that take over only in a mode (the debugger's F5, F10, F11 while
+  // you're debugging) come before the menu and the usual F-keys
+  for (const c of commands.values()) {
+    if (c.priority && c.keys.includes(name) && c.when && c.when()) {
+      e.preventDefault(); e.stopPropagation();
+      runCommand(c.id);
+      return;
+    }
+  }
   if (name === 'F10' || (name.startsWith('Alt+') && name.length === 5 && !ownedByFocus(e, name))) {
     const letter = name === 'F10' ? null : name.slice(4);
     if (menubar.openByKey(letter)) { e.preventDefault(); e.stopPropagation(); return; }

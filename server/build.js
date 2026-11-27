@@ -175,9 +175,11 @@ function moduleFailure(err, file, tc) {
 }
 
 // gdb on one file, no CMake needed: compiled -O0 -g, stopped at your line
-async function debugSingle({ file, line, args = '' }) {
+async function debugSingle({ file, line, args = '', prepare = false }) {
   const r = await buildSingle({ file, variant: 'debug' });
   if (r.code !== 0) return { ok: false, ...r, output: undefined };
+  // the visual debugger runs gdb itself: it only needs the program
+  if (prepare) return { ok: true, ...r, output: undefined, exe: r.exe, cwd: path.dirname(file), gdb: platform.gdb(), mainBreak: 'main', target: path.basename(r.exe), lang: /\.c$/i.test(file) ? 'c' : 'cpp' };
   const stop = line ? `break ${file}:${line}` : 'break main';
   const argv = [platform.gdb(), '-q', '-ex', 'set pagination off', '-ex', stop, '-ex', 'run', '--args', r.exe, ...String(args).split(/\s+/).filter(Boolean)];
   const term = pty.open({ cwd: path.dirname(file), title: `gdb: ${path.basename(r.exe)}`, argv, env: { ASAN_OPTIONS: 'detect_leaks=0' } });

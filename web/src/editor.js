@@ -34,6 +34,7 @@ import { tabs, command, runCommand, status, setEditorKeymap } from './layout.js'
 import { editorHighlight } from './highlight.js';
 import { fileLanguage } from './lang.js';
 import { bannedFunctions } from './banned.js';
+import { breakpoints } from './bpgutter.js';
 
 let cfg = null;
 export function setConfig(c) {
@@ -469,9 +470,11 @@ export async function openFile(file, { line, col, preview, side } = {}) {
         this.view = createView({
           parent: host, doc: res.text, file, lang,
           onChange: (u) => { tabs.setDirty(id, !u.state.doc.eq(this.savedDoc)); autosaveSoon(this); },
-          extra: [lspCompartment.of([])],
+          // breakpoints in the margin, for the files the debugger can stop in
+          extra: [lspCompartment.of([]), ...(lang.code ? [breakpoints((lines) => window.dispatchEvent(new CustomEvent('cpw-breakpoints', { detail: { file, lines } })))] : [])],
         });
         this.savedDoc = this.view.state.doc;
+        if (lang.code) window.dispatchEvent(new CustomEvent('cpw-editor-opened', { detail: { file, view: this.view } }));
         lspExtension(file, lang).then((ext) => { if (this.view && ext && (ext.length !== 0)) this.view.dispatch({ effects: lspCompartment.reconfigure(ext) }); });
       },
       onShow() { if (this.view) { this.view.requestMeasure(); setTimeout(() => this.view.focus(), 0); cursorStatus(this.view); } status.set('lang', this.lang ? this.lang.name : '', { order: 15, side: 'left' }); },

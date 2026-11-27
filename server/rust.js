@@ -155,7 +155,7 @@ async function run({ file, dir, target, args = '', release }) {
 }
 
 // rust-gdb: gdb with Rust's pretty printers, stopped at your line (or main)
-async function debug({ file, line, target, args = '' }) {
+async function debug({ file, line, target, args = '', prepare = false }) {
   const ctx = context({ file });
   if (!ctx) throw new Error('Not a Rust file or Cargo project');
   let exe, cwd, name;
@@ -172,6 +172,7 @@ async function debug({ file, line, target, args = '' }) {
     exe = platform.exe(path.join(pick.targetDir, 'debug', name)); cwd = ctx.root;
   }
   const gdb = platform.which('rust-gdb') ? 'rust-gdb' : platform.gdb();
+  if (prepare) return { ok: true, exe, cwd, gdb, mainBreak: `${name.replace(/-/g, '_')}::main`, target: name, lang: 'rust', code: 0, problems: [] };
   // a Rust program's own main is <crate>::main; "break main" would stop in the runtime first
   const stop = file && line && RS.test(file) ? `break ${path.basename(file)}:${line}` : `break ${name.replace(/-/g, '_')}::main`;
   const argv = [gdb, '-q', '-ex', 'set pagination off', '-ex', stop, '-ex', 'run', '--args', exe, ...String(args).split(/\s+/).filter(Boolean)];

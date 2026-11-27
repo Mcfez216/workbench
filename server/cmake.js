@@ -244,17 +244,18 @@ async function run({ file, root, target, args = '', tool }) {
 // gdb on the program, stopped at the line you're on (or at main).
 // LeakSanitizer can't work under a debugger, so it's turned off there
 // (note 4.03: the ASan-under-gdb conflict); ASan itself stays on.
-async function debug({ file, line, root, target, args = '' }) {
-  if (rustFor({ file, root })) return require('./rust').debug({ file, line, target, args });
+async function debug({ file, line, root, target, args = '', prepare = false }) {
+  if (rustFor({ file, root })) return require('./rust').debug({ file, line, target, args, prepare });
   const rt = await resolveTarget({ file, root, target });
   if (!rt.root) {
-    if (file && SOURCE_EXT.test(file)) return debugSingle({ file, line, args });
+    if (file && SOURCE_EXT.test(file)) return debugSingle({ file, line, args, prepare });
     throw new Error('Open a .c or .cpp file, or a file in a CMake project, to debug');
   }
   if (rt.failed) return { ok: false, ...rt.failed };
   if (!rt.target) return { ok: false, needTarget: true, root: rt.root, choices: rt.choices };
   const r = await build({ root: rt.root, target: rt.target.name });
   if (r.code !== 0) return { ok: false, ...r };
+  if (prepare) return { ok: true, ...r, exe: rt.target.artifact, cwd: rt.root, gdb: require('./platform').gdb(), mainBreak: 'main', target: rt.target.name, lang: /\.c$/i.test(file || '') ? 'c' : 'cpp' };
   const stop = file && line && /\.(cpp|cc|cxx|c|hpp|hh|h|ipp)$/.test(file) ? `break ${file}:${line}` : 'break main';
   const argv = [require('./platform').gdb(), '-q', '-ex', 'set pagination off', '-ex', stop, '-ex', 'run', '--args', rt.target.artifact, ...String(args).split(/\s+/).filter(Boolean)];
   const term = pty.open({ cwd: rt.root, title: `gdb: ${rt.target.name}`, argv, env: { ASAN_OPTIONS: 'detect_leaks=0' } });
@@ -397,4 +398,4 @@ function init(a) {
   a.register('build.build', build);
 }
 
-module.exports = { init, cmakeRoot, buildDir, readModel, targetFor, filterProjects: projectsFrom };
+module.exports = { init, cmakeRoot, buildDir, readModel, targetFor, debug, filterProjects: projectsFrom };

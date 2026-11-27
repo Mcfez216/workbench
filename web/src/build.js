@@ -228,7 +228,7 @@ async function withTarget(method, extra = {}) {
   const ctx = await context();
   await saveAll();
   const remembered = async (root) => (root ? call('state.get', { key: `run.target:${root}` }) : null);
-  startRun(method === 'cmake.debug' ? 'Building for gdb' : extra.tool === 'valgrind' ? 'Building for Valgrind' : 'Build and run');
+  startRun(method === 'cmake.debug' || method === 'dbg.start' ? 'Building for the debugger' : extra.tool === 'valgrind' ? 'Building for Valgrind' : 'Build and run');
   let r = await call(method, { file: ctx.file, ...extra });
   if (r.needTarget) {
     let name = await remembered(r.root);
@@ -239,8 +239,8 @@ async function withTarget(method, extra = {}) {
     }
     r = await call(method, { file: ctx.file, target: name, ...extra });
   }
-  finishRun(r, method === 'cmake.debug' ? `gdb: ${r.target || ''}` : `${extra.tool === 'valgrind' ? 'Valgrind' : 'Running'} ${r.target || ''}`.trim());
-  if (r.ok) panel.show('terminal');
+  finishRun(r, method === 'cmake.debug' ? `gdb: ${r.target || ''}` : method === 'dbg.start' ? `Debugging ${r.target || ''}` : `${extra.tool === 'valgrind' ? 'Valgrind' : 'Running'} ${r.target || ''}`.trim());
+  if (r.ok && method !== 'dbg.start') panel.show('terminal');
   return r;
 }
 
@@ -546,6 +546,9 @@ async function runSandbox(tool) {
 }
 
 // The Tests sidebar's run / debug buttons
+// The visual debugger's start: the same build and "which program?" question
+export function debugWithTarget(extra) { return withTarget('dbg.start', extra); }
+
 export async function runTarget(target, root, dbg = false) {
   await saveAll();
   startRun(dbg ? `Building ${target} for gdb` : `Building ${target}`);
@@ -583,7 +586,8 @@ export function initBuild() {
     const name = await pickTarget(r.targets.filter((x) => x.type === 'executable'), 'Run which program from now on (for files that aren\'t in one)?');
     if (name) { await call('state.set', { key: `run.target:${r.root}`, value: name }); toast(`Ctrl+F9 runs ${name} for files that aren't part of a program`, 'ok'); }
   });
-  command('build.debug', 'Debug with gdb (stops at this line)', ['Ctrl+Shift+D'], debug);
+  // Ctrl+Shift+D is the visual debugger (debugger.js); this is gdb typed by hand
+  command('build.debug', 'Debug in a terminal (type gdb commands; stops at this line)', [], debug);
   command('build.nextProblem', 'Next problem', ['Alt+F8'], () => nextProblem(1));
   command('build.prevProblem', 'Previous problem', ['Alt+F7'], () => nextProblem(-1));
   command('build.showProblems', 'Problems', [], () => panel.show('problems'));

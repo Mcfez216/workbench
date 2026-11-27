@@ -949,3 +949,32 @@ pre.disasm, pre.hexdump { background: var(--code-bg); color: var(--code-fg); pad
 .crash { margin-bottom: 1em; }
 .cm-banned { text-decoration: underline wavy var(--warn); text-underline-offset: 3px; }
 .cm-banned-tip { padding: 4px 1ch; max-width: 60ch; }
+
+/* ---- the debugger: the margin, the paused line, the Debug panel */
+.cm-bp-gutter { width: 1.4em; cursor: pointer; }
+.cm-bp-gutter .cm-gutterElement { display: flex; align-items: center; justify-content: center; }
+.cm-bp-gutter .cm-gutterElement:hover::after { content: '●'; color: var(--error); opacity: 0.35; position: absolute; }
+.cm-bp-dot { color: var(--error); line-height: 1; }
+.cm-exec-arrow { color: var(--warn); position: absolute; }
+.cm-execLine { background: color-mix(in srgb, var(--warn) 28%, transparent) !important; outline: 1px solid var(--warn); }
+.dbg { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.dbg-bar { display: flex; flex-wrap: wrap; gap: 0.4em; align-items: center; padding: 0.3em 0.5em; border-bottom: 1px solid var(--panel-border); }
+.dbg-btn[disabled] { opacity: 0.45; }
+.dbg-state { margin-left: 0.5em; }
+.dbg-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.3fr) minmax(0, 1.4fr); gap: 0.8em; padding: 0.4em 0.6em; overflow: auto; flex: 1; min-height: 0; }
+.dbg-col { min-width: 0; overflow: auto; }
+.dbg-title { color: var(--panel-title); font-weight: bold; margin: 0.2em 0 0.3em; }
+.dbg-vars { border-collapse: collapse; width: 100%; }
+.dbg-vars td { padding: 0.05em 0.5em 0.05em 0; vertical-align: top; }
+.dbg-vars .dbg-value { word-break: break-word; }
+.dbg-vars .dbg-type { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 14em; }
+.dbg-vars tr.changed .dbg-value { color: var(--warn); font-weight: bold; }
+.dbg-name { color: var(--syn-variable); }
+.dbg-value { color: var(--syn-string); }
+.dbg-stack, .dbg-watches, .dbg-bps { list-style: none; margin: 0; padding: 0; }
+.dbg-stack li.sel .tree-row { background: var(--side-sel-bg); color: var(--side-sel-fg); }
+.dbg-stack li.lib { opacity: 0.6; }
+.dbg .field { width: 100%; box-sizing: border-box; margin-bottom: 0.3em; }
+@media (max-width: 900px) { .dbg-grid { grid-template-columns: 1fr; } }
+.dbg .link { background: none; border: none; box-shadow: none; color: var(--link); cursor: pointer; padding: 0 0.3em; font: inherit; }
+.dbg .link:hover { text-decoration: underline; }

@@ -182,4 +182,4 @@ function init(a) {
   a.onExit.push(killAll);
 }
 
-module.exports = { init, open, write, backend };
+module.exports = { init, open, write, close, backend };

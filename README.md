@@ -47,7 +47,7 @@ everything when you update. MHDE and the Kernel Path Workbench install side by s
 | **Outline** | Ctrl+Shift+B: the functions, structs, classes, enums, typedefs and macros in the file, from the editor's own parse, so it works without clangd. |
 | **Build** | F9 builds with **CMake**: the build directory is `build/` next to the top `CMakeLists.txt`, the same one Neovim's `:CMakeBuild` and the notes use, Debug by default so ASan and UBSan are on. The first build configures (Alt+F9 does it on its own). Errors land in **Problems**; click one to jump there. A template error deep in `<map>` points at **your** line, with the library's notes folded under it. Alt+F8 / Alt+F7 step through them, Turbo C++ style. A `.c` or `.cpp` file outside any CMake project builds on its own with gcc or g++. |
 | **Run** | Ctrl+F9 builds the program the file belongs to and runs it in a terminal, so `std::cin` works. When AddressSanitizer or UBSan stops it, the line turns **red** in the editor with what happened under it, and it's in Problems (with where the memory was freed and allocated). "Run with arguments..." remembers them per file. |
-| **Debug** | Ctrl+Shift+D: builds the program (a CMake target, or a lone `.c` / `.cpp` file) and starts **gdb** stopped at the line your cursor is on, with LeakSanitizer switched off as note 4.03 explains. |
+| **Debug** | A visual debugger. Click left of a line number (or Ctrl+F8) for a **breakpoint**; Ctrl+Shift+D builds and runs to it (no breakpoints: it pauses at `main`). **F10** step over, **F11** step into, **Shift+F11** step out (with the value the function returned), **F5** continue, **Ctrl+F10** run to the cursor, **Shift+F5** stop. The Debug panel shows the **variables** (what changed since the last stop in yellow), the **call stack** (click a frame to look there), **watches** (`total * 2`, `v.size()`, `*p`) and your breakpoints. The program's input and output get their own terminal, so `std::cin` works. A **crash** pauses on the line that did it: a segfault, an AddressSanitizer report, a Rust panic. Stepping skips the standard library. Build → *Debug in a terminal* is the old way, gdb typed by hand. |
 | **Valgrind** | Build → Run under Valgrind: memcheck on a lone file or the sandbox (built without the sanitizers, which can't share a program with Valgrind), or on a CMake target when the build type isn't Debug. Leaks, uninitialised reads, bad frees. |
 | **Tests** | F7 runs **ctest** (the library and the five solutions: 60 tests). The **Tests** sidebar ticks them off as they finish; click a test to jump to its `TEST_CASE`, ▶ to run just that one. Shift+F7 runs the `TEST_CASE` the cursor is in. |
 | **Projects** | The Tests sidebar lists P01-P05. ▶ builds your **stub** and runs its tests: "3/9" means three test cases pass so far. ? opens the project note, ☼ peeks at the solution (it asks first). A test file's Shift+F7 runs against your stub, not the solution. |
@@ -101,7 +101,7 @@ Switch to **Rust** and the same keys do the Rust thing:
 | **Build / Run** (F9, Ctrl+F9) | a Cargo project (`cargo build`, `cargo run`), or a lone `.rs` file with `rustc --edition 2024`. Errors land in Problems with their code (`E0382`) and the labelled lines under them; **?** on one runs `rustc --explain`. A panic is a red line, like an ASan report. |
 | **Tests** (F7) | `cargo test`: the Tests sidebar lists every `#[test]`, ▶ runs one, click to jump to it. |
 | **Analysis** | Ctrl+Shift+K runs **clippy**; Ctrl+Shift+O formats with **rustfmt**. **rust-analyzer** gives completion, errors as you type, hover, go to definition and rename. |
-| **Debug** | rust-gdb at the cursor's line. |
+| **Debug** | the same visual debugger, through rust-gdb: a `Vec` or `String` shows its contents, and a panic pauses on your line. |
 | **Sandbox** | a scratch `.rs` with 14 examples (ownership, borrowing, `Option`/`Result`, traits, iterators, and "break it": index out of range, overflow, `unwrap` on `None`...), and its **assembly**. |
 | **Judge** | `.rs` solutions, built with `rustc -O`. |
 | **New project** | a Cargo binary or library with tests. |
@@ -381,7 +381,7 @@ Put a file on one side and a guide on the other. Shift+click a note in Guides (o
 | F4 | C++ sandbox | F8 | Judge (again: run the cases) |
 | F5 / Ctrl+` | Terminal | F9 | Build |
 | Alt+F9 | CMake configure | Ctrl+F9 | Build and run |
-| Ctrl+Shift+D | gdb, stopped at this line | Alt+F8 / Alt+F7 | Next / previous problem |
+| Ctrl+Shift+D | Debug (then F10 / F11 / Shift+F11 / F5; Ctrl+F8 breakpoint) | Alt+F8 / Alt+F7 | Next / previous problem |
 | F12 / Shift+F12 | Definition / references | Ctrl+Shift+O | Format the file |
 | Ctrl+Shift+G | Focus mode | F7 (in an exercise) | Check the exercise |
 | Ctrl+Shift+K | clang-tidy | Ctrl+Shift+U | cppcheck |

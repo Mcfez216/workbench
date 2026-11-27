@@ -665,6 +665,69 @@ async function test(name, fn) {
     for (const p of l.projects) assert.ok(notes.some((n) => n.toUpperCase().startsWith(p.label.split(' ')[0] + ' ')), p.label);
   });
 
+  await test('debugger: breakpoints, typing into the program, step into and out, variables, watches, a crash stops on its line; Rust too', async () => {
+    const dir = fs.mkdtempSync(path.join(HOME, 'dbg-'));
+    const file = path.join(dir, 'prog.cpp');
+    fs.writeFileSync(file, '#include <iostream>\n#include <string>\n#include <vector>\n\nint square(int x)\n{\n    int y = x * x;\n    return y;\n}\n\nint main()\n{\n    std::vector<int> v{1, 2, 3};\n    std::string name;\n    std::cin >> name;\n    int total = 0;\n    for (int n : v) {\n        total += square(n);\n    }\n    std::cout << name << " " << total << "\\n";\n    int* p = nullptr;\n    if (name == "crash") *p = 1;\n    return 0;\n}\n');
+    const paused = () => waitFor('dbg.paused', () => true, 60000);
+    await call('dbg.setBreakpoints', { file, lines: [18] });
+    let w = paused();
+    const r = await call('dbg.start', { file });
+    assert.ok(r.ok, JSON.stringify(r).slice(0, 400));
+    if (r.terminal) setTimeout(() => call('pty.write', { id: r.terminal, data: 'ana\r' }), 800);
+    let p = await w;
+    assert.strictEqual(p.line, 18);
+    assert.match(p.reason, /breakpoint/);
+    const val = (n) => (p.locals.find((x) => x.name === n) || {}).value;
+    assert.strictEqual(val('total'), '0');
+    assert.match(val('name'), /"ana"/);
+    assert.match(val('v'), /\{1, 2, 3\}/);
+    assert.ok(!p.locals.some((x) => /^__/.test(x.name)), 'no compiler helpers');
+    await call('dbg.setWatches', { list: ['total + 100', 'nothere'] });
+    w = paused(); await call('dbg.resume', { how: 'step' }); p = await w;
+    assert.strictEqual(p.func, 'square');
+    assert.strictEqual(p.locals.find((x) => x.name === 'x').arg, true);
+    w = paused(); await call('dbg.resume', { how: 'finish' }); p = await w;
+    assert.match(p.reason, /gave back 1/);
+    assert.deepStrictEqual(p.watches[0], { expr: 'total + 100', value: '100' });
+    assert.match(p.watches[1].error, /nothere/);
+    // looking at main's frame from inside square: main's variables
+    w = paused(); await call('dbg.resume', { how: 'step' }); p = await w;
+    if (p.func === 'square') { w = paused(); await call('dbg.selectFrame', { level: 1 }); p = await w; assert.ok(p.locals.some((x) => x.name === 'total')); w = paused(); await call('dbg.resume', { how: 'finish' }); await w; }
+    await call('dbg.setBreakpoints', { file, lines: [] });
+    const ended = waitFor('dbg.ended', () => true, 30000);
+    await call('dbg.resume', { how: 'continue' });
+    assert.strictEqual((await ended).code, 0);
+    // a crash: no breakpoints, so it pauses at main first; then the segfault stops on its line
+    w = paused();
+    const r2 = await call('dbg.start', { file });
+    await w;
+    if (r2.terminal) setTimeout(() => call('pty.write', { id: r2.terminal, data: 'crash\r' }), 300);
+    w = paused(); await call('dbg.resume', { how: 'continue' }); p = await w;
+    assert.strictEqual(p.crashed, true);
+    assert.strictEqual(p.line, 22);
+    assert.match(p.reason, /segmentation fault/);
+    await call('dbg.stop', {});
+    // Rust: rust-gdb shows a Vec's contents; a panic stops on your line
+    if (require('./../server/platform').which('rustc')) {
+      const rs = path.join(dir, 'prog.rs');
+      fs.writeFileSync(rs, 'fn total(v: &[i32]) -> i32 {\n    let mut sum = 0;\n    for x in v {\n        sum += x;\n    }\n    sum\n}\n\nfn main() {\n    let v = vec![1, 2, 3];\n    let t = total(&v);\n    println!("{t}");\n    let empty: Vec<i32> = Vec::new();\n    println!("{}", empty[0]);\n}\n');
+      await call('dbg.setBreakpoints', { file: rs, lines: [11] });
+      w = paused();
+      assert.ok((await call('dbg.start', { file: rs })).ok);
+      p = await w;
+      assert.match((p.locals.find((x) => x.name === 'v') || {}).value, /1, 2, 3/);
+      w = paused(); await call('dbg.resume', { how: 'step' }); p = await w;
+      assert.match(p.func, /total/);
+      await call('dbg.setBreakpoints', { file: rs, lines: [] });
+      w = paused(); await call('dbg.resume', { how: 'continue' }); p = await w;
+      assert.match(p.reason, /panicked/);
+      assert.strictEqual(p.line, 14);
+      await call('dbg.stop', {});
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   await test('course vaults: copied to ~/Notes on the first start; new notes later, your edits never replaced', async () => {
     const { execFileSync } = require('child_process');
     const home = fs.mkdtempSync(path.join(HOME, 'first-'));
