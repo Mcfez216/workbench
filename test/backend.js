@@ -778,6 +778,46 @@ async function test(name, fn) {
     assert.match(c.reason, /finish it/);
   });
 
+  await test('libraries and templates: add fmt to CMakeLists.txt (once), pick a target, popular crates; a command-line tool, a game, a web server, benchmarks', async () => {
+    const cpp = await call('libs.list', { lang: 'cpp' });
+    assert.ok(['fmt', 'cli11', 'json', 'httplib', 'raylib'].every((id) => cpp.recipes.some((r) => r.id === id)));
+    assert.ok((await call('libs.list', { lang: 'c' })).recipes.some((r) => r.id === 'cjson'));
+    assert.ok((await call('libs.list', { lang: 'rust' })).crates.some((c) => c.name === 'clap'));
+    const dir = fs.mkdtempSync(path.join(HOME, 'libs-'));
+    fs.writeFileSync(path.join(dir, 'CMakeLists.txt'), 'cmake_minimum_required(VERSION 3.16)\nproject(x CXX)\nadd_executable(app main.cpp)\n');
+    const a = await call('libs.addCmake', { root: dir, id: 'fmt' });
+    assert.strictEqual(a.target, 'app');
+    const cm = fs.readFileSync(path.join(dir, 'CMakeLists.txt'), 'utf8');
+    assert.match(cm, /FetchContent_Declare\(fmt GIT_REPOSITORY https:\/\/github\.com\/fmtlib\/fmt\.git\n\s+GIT_TAG 12\.2\.1 GIT_SHALLOW TRUE\)/);
+    assert.match(cm, /target_link_libraries\(app PRIVATE fmt::fmt\)/);
+    assert.strictEqual((await call('libs.addCmake', { root: dir, id: 'fmt' })).already, true);
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'CMakeLists.txt'), 'utf8'), cm, 'not added twice');
+    const j = await call('libs.addCmake', { root: dir, id: 'json' });
+    assert.match(fs.readFileSync(path.join(dir, 'CMakeLists.txt'), 'utf8'), /URL_HASH SHA256=[0-9a-f]{64}/);
+    assert.ok(j.ok);
+    fs.appendFileSync(path.join(dir, 'CMakeLists.txt'), 'add_executable(tool tool.cpp)\n');
+    const t = await call('libs.addCmake', { root: dir, id: 'spdlog' });
+    assert.deepStrictEqual(t.choices, ['app', 'tool']);
+    // the new kinds of project
+    for (const [lang, kind, has] of [['c', 'cli', /unknown option/], ['cpp', 'game', /raylib/], ['cpp', 'web', /httplib/], ['rust', 'web', /TcpListener/], ['rust', 'game', /macroquad/], ['cpp', 'bench', /bench\(/], ['rust', 'bench', /black_box/]]) {
+      const r = await call('project.create', { dir, name: `p_${lang}_${kind}`, lang, kind, git: false });
+      assert.match(fs.readFileSync(r.main, 'utf8'), has, `${lang} ${kind}`);
+      if (kind === 'game' && lang !== 'rust') assert.doesNotMatch(fs.readFileSync(path.join(r.root, 'CMakeLists.txt'), 'utf8'), /fsanitize=address/, 'no ASan for a game');
+      if (kind === 'bench' && lang !== 'rust') assert.match(fs.readFileSync(path.join(r.root, 'CMakeLists.txt'), 'utf8'), /set\(CMAKE_BUILD_TYPE Release\)/);
+      if (lang === 'rust' && kind === 'game') assert.match(fs.readFileSync(path.join(r.root, 'Cargo.toml'), 'utf8'), /macroquad = "0\.4"/);
+    }
+    await assert.rejects(call('project.create', { dir, name: 'p_c_web', lang: 'c', kind: 'web', git: false }), /C\+\+ or Rust/);
+    // a command-line tool builds and runs as it says
+    const own = fs.mkdtempSync(path.join(HOME, 'tool-'));   // not under the folder with the other CMakeLists.txt
+    const cli = await call('project.create', { dir: own, name: 'mytool', lang: 'cpp', kind: 'cli', git: false });
+    const b = await call('build.build', { file: cli.main });
+    assert.strictEqual(b.code, 0, JSON.stringify(b.problems).slice(0, 400));
+    const exe = path.join(cli.root, 'build', 'mytool');
+    assert.strictEqual(require('child_process').execFileSync(exe, ['-nu'], { input: 'hi\n', encoding: 'utf8' }), '     1  HI\n');
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(own, { recursive: true, force: true });
+  });
+
   await test('course vaults: copied to ~/Notes on the first start; new notes later, your edits never replaced', async () => {
     const { execFileSync } = require('child_process');
     const home = fs.mkdtempSync(path.join(HOME, 'first-'));

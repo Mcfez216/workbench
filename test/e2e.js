@@ -641,6 +641,27 @@ async function main() {
       await page.keyboard.press('Control+W');
     });
 
+    await step('Add a library lists libraries to download; New project has a command-line tool, a game, a web server and benchmarks', async () => {
+      await openTree('examples', '03_square.cpp');
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('Add a library');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.dialog .lib-row:has-text("fmt")');
+      assert.ok(await page.locator('.dialog .lib-row', { hasText: 'nlohmann/json' }).count());
+      await page.locator('.dialog .dlg-btn', { hasText: 'Cancel' }).click();
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('New project');
+      await page.waitForSelector('.palette-row.sel:has-text("New project")');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.dialog:has-text("New project")');
+      for (const k of ['Command-line tool', 'Game window', 'Web server', 'Benchmarks']) assert.ok(await page.locator('.dialog .choice', { hasText: k }).count(), k);
+      await page.locator('.dialog .choice', { hasText: /^C \(C17\)$/ }).click();
+      assert.ok(await page.locator('.dialog .choice[data-value="web"]').isDisabled(), 'no web server in C');
+      await page.locator('.dialog .dlg-btn', { hasText: 'Cancel' }).click();
+    });
+
     await step('the palette runs anything by name; New file makes a C program; the outline lists it', async () => {
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');

@@ -999,3 +999,7 @@ html[data-pixel="yes"] .today-title { font-weight: normal; }
 .today-box.done .today-title { color: var(--ok); }
 .today-name { background: none; border: none; color: var(--link); cursor: pointer; padding: 0; font: inherit; text-align: left; text-decoration: underline; }
 .start .today-box { margin: 0 0 1em; max-width: 70ch; }
+.lib-list { max-height: 50vh; overflow: auto; margin-top: 0.5em; }
+.lib-row { display: flex; flex-direction: column; align-items: flex-start; gap: 0.1em; text-align: left; }
+.lib-name { font-weight: bold; }
+html[data-pixel="yes"] .lib-name { font-weight: normal; color: var(--accent); }

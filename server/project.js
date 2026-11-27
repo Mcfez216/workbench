@@ -214,7 +214,11 @@ async function createProject({ dir, name, lang = 'cpp', kind = 'console', git = 
   const root = path.join(parent, id);
   if (fs.existsSync(root) && fs.readdirSync(root).length) throw new Error(`${root} already exists and isn't empty`);
   const rust = lang === 'rust';
-  const files = rust ? cargoFiles({ name, kind }).files : projectFiles({ name: id, lang: lang === 'c' ? 'c' : 'cpp', kind: kind === 'library' ? 'library' : 'console' });
+  const tpl = require('./templates');
+  const extra = !!tpl.KINDS[kind];   // cli, game, web, bench: a program, then changed (templates.js)
+  const base = extra ? 'console' : kind;
+  const made = rust ? cargoFiles({ name, kind: base }) : { files: projectFiles({ name: id, lang: lang === 'c' ? 'c' : 'cpp', kind: base === 'library' ? 'library' : 'console' }), pkg: id };
+  const files = extra ? tpl.apply(made.files, { id: rust ? made.pkg : id, lang: rust ? 'rust' : lang === 'c' ? 'c' : 'cpp', kind }) : made.files;
   for (const [rel, text] of Object.entries(files)) {
     const f = path.join(root, rel);
     await fsp.mkdir(path.dirname(f), { recursive: true });

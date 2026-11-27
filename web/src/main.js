@@ -16,6 +16,7 @@ import { initProgress } from './progress.js';
 import { initMemviz } from './memviz.js';
 import { initDebugger } from './debugger.js';
 import { initTracks } from './tracks.js';
+import { initLibraries } from './libraries.js';
 import { initCompare } from './compare.js';
 import { initReference } from './reference.js';
 import { initSecurity } from './security.js';
@@ -43,7 +44,7 @@ let cfg;
 
 const MENUS = [
   { label: 'File', hot: 'F', items: [
-    { cmd: 'project.new' }, { cmd: 'file.new' }, { cmd: 'file.newHeader' }, { cmd: 'file.newPair' }, { sep: true },
+    { cmd: 'project.new' }, { cmd: 'project.addLibrary' }, { cmd: 'file.new' }, { cmd: 'file.newHeader' }, { cmd: 'file.newPair' }, { sep: true },
     { cmd: 'file.quickOpen' }, { cmd: 'file.recent' }, { cmd: 'file.openFolder' }, { cmd: 'file.openRecentFolder' }, { cmd: 'file.addFolder' }, { cmd: 'vault.copyCode' }, { sep: true },
     { cmd: 'file.save' }, { cmd: 'file.saveAll' }, { cmd: 'edit.autosave' }, { cmd: 'file.close' }, { sep: true },
     { cmd: 'app.settings' }, { cmd: 'app.quit' },
@@ -325,7 +326,7 @@ async function boot() {
   buildShell(root, FKEYS);
   initEditorCommands(); initFiles(); initExercises(); initOutline(); initTerminal(); initBuild(); initTests(); initJudge(); initGit(); initGuides(); initNotes(); initRevise();
   await initIrc(); initMail(); initMusic(); initSettings(); initWelcome(); initPalette(); initNewStuff(); initStart();
-  initComfort(); initProgress(); initMemviz(); initDebugger(); initTracks(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
+  initComfort(); initProgress(); initMemviz(); initDebugger(); initTracks(); initLibraries(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
   applyComfort(cfg);
   menubar.build(MENUS);
   toolbar.build(TOOLBAR);

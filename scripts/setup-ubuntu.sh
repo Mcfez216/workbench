@@ -52,6 +52,7 @@ packages=(
 	cppcheck valgrind git ripgrep python3
 	libclang-rt-dev				# clang's fuzzing (libFuzzer) and sanitizer libraries
 	libc++-dev libc++abi-dev		# libc++, with the std module: import std; (C++23) with clang++
+	libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libasound2-dev	# for game windows (raylib, macroquad)
 
 	# --- the app itself: passwords in a keyring, the bin, man pages, links ---
 	libsecret-tools gnome-keyring dbus-x11	# secret-tool and a keyring to keep the passwords in

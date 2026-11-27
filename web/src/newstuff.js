@@ -78,7 +78,19 @@ async function newProject() {
   const kind = choices([
     ['console', 'Program', 'One program: src/main'],
     ['library', 'Library + tests', 'A library, a program that uses it, and tests F7 runs (CTest, or cargo test for Rust)'],
+    ['cli', 'Command-line tool', 'Options (-n, -u, --help, --version), files or standard input, errors and exit codes: a tool to grow'],
+    ['game', 'Game window', 'A window with a small game: raylib for C and C++, macroquad for Rust (downloaded on the first build)'],
+    ['web', 'Web server', 'A server you open in the browser: cpp-httplib for C++, the standard library for Rust'],
+    ['bench', 'Benchmarks', 'Time two ways of doing the same job, built optimised'],
   ], 'console', { label: 'Kind' });
+  // a web server is C++ or Rust: C would mean sockets by hand, different on each system
+  const fitKind = () => {
+    const web = kind.querySelector('.choice[data-value="web"]') || [...kind.querySelectorAll('.choice')].find((b) => /Web server/.test(b.textContent));
+    if (web) { web.disabled = lang.value === 'c'; web.title = lang.value === 'c' ? 'C++ or Rust' : ''; }
+    if (lang.value === 'c' && kind.value === 'web') kind.set('cli');
+  };
+  lang.addEventListener('change', fitKind);
+  fitKind();
   const name = h('input', { class: 'field', type: 'text', placeholder: 'my_project', spellcheck: 'false', id: 'np-name' });
   const where = h('input', { class: 'field', type: 'text', value: pathText(parentGuess).replace(/‎/g, ''), spellcheck: 'false', id: 'np-dir' });
   const git = h('input', { type: 'checkbox', checked: true, id: 'np-git' });
@@ -91,6 +103,8 @@ async function newProject() {
       return;
     }
     const ext = lang.value === 'c' ? 'c' : 'cpp';
+    const extra = { cli: ' A command-line tool: options, files or standard input, exit codes.', game: ' A game window: CMake downloads raylib on the first build.', web: ' A web server: CMake downloads cpp-httplib on the first build; open http://localhost:8080.', bench: ' Benchmarks, built optimised (Release, no sanitizers).' }[kind.value];
+    if (extra) { preview.textContent = `${where.value.replace(/\/+$/, '')}/${n}/: CMakeLists.txt, src/main.${ext}, .clang-format, .gitignore, README.md.${extra}`; return; }
     preview.textContent = `${where.value.replace(/\/+$/, '')}/${n}/: CMakeLists.txt, src/main.${ext}${kind.value === 'library' ? `, src/${n}.${ext}, include/${n}.${lang.value === 'c' ? 'h' : 'hpp'}, tests/test_${n}.${ext}` : ''}, .clang-format, .gitignore, README.md. Debug builds have AddressSanitizer and UBSan on.`;
   };
   for (const el of [lang, kind]) el.addEventListener('change', update);
