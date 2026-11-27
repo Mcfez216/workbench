@@ -388,6 +388,18 @@ on('lsp.exit', (d) => {
   if (d.error && !/not installed/.test(d.error)) toast(d.error, 'error', 8000);   // "not installed" was already said
 });
 
+// import std; built with a module: give clangd this file's real compile
+// command (clangd's compilationDatabaseChanges), so it finds the module too
+export async function tellClangd({ file, directory, command }) {
+  try {
+    const { root, server } = await call('lsp.root', { file });
+    const p = clients.get(`${root}|${server}`);
+    if (!p || server !== 'clangd') return;
+    const client = await p;
+    client.notification('workspace/didChangeConfiguration', { settings: { compilationDatabaseChanges: { [file]: { workingDirectory: directory, compilationCommand: command } } } });
+  } catch (e) { /* clangd isn't running: nothing to tell */ }
+}
+
 async function lspExtension(file, lang) {
   if (!lang.lsp || !cfg || (!cfg.clangd.enabled && lang.server !== 'rust-analyzer') || (lang.server === 'rust-analyzer' && cfg.rustAnalyzer === false)) return [];
   try {

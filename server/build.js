@@ -146,13 +146,33 @@ function singleArgs(file, variant = 'run') {
 
 async function buildSingle({ file, variant }) {
   if (!file || !SOURCE_EXT.test(file)) throw new Error('This file is not in a CMake project, and it is not a .c or .cpp file to compile on its own');
-  const { tc, out, args, flags } = singleArgs(file, variant);
-  const r = await execStream({ cmd: tc.cc, args, cwd: path.dirname(file), title: `${tc.cc} ${path.basename(file)}` });
-  // exe, not output: execStream's result has the compiler's text in output
-  return { ...r, kind: 'single', exe: out, lang: tc.lang, flags, output: undefined };
+  const { tc, out, args: plain, flags } = singleArgs(file, variant);
+  // import std; (C++23): the std module first, then the file with it
+  let cmd = tc.cc, args = plain, note = '';
+  if (tc.lang === 'cpp') {
+    let m = null;
+    try { m = await require('./modules').prepareAny({ cc: tc.cc, std: tc.std, flags, file }); }
+    catch (err) { return moduleFailure(err, file, tc); }
+    if (m) { cmd = m.cc; args = [`-std=${m.std}`, ...flags, ...m.args, '-o', out, file, ...m.inputs]; note = m.note; }
+  }
+  const r = await execStream({ cmd, args, cwd: path.dirname(file), title: `${cmd} ${path.basename(file)}${note ? ` (${note})` : ''}` });
+  // exe, not output: execStream's result has the compiler's text in output.
+  // With import std;, the window tells clangd this file's real command, so
+  // the editor stops underlining the import.
+  const clangd = args === plain ? undefined : { file, directory: path.dirname(file), command: [cmd, ...args.filter((a, i) => a !== '-o' && args[i - 1] !== '-o' && !/\.o$/.test(a))] };
+  return { ...r, kind: 'single', exe: out, lang: tc.lang, flags, output: undefined, clangd, note: note || undefined };
 }
 
 function q(s) { return `'${String(s).replace(/'/g, `'\\''`)}'`; }
+
+// import std; couldn't be set up: one problem on the import line, saying why
+function moduleFailure(err, file, tc) {
+  let line = 1;
+  try { line = fs.readFileSync(file, 'utf8').split('\n').findIndex((l) => /^\s*import\s+std/.test(l)) + 1 || 1; } catch (e) { /* line 1 */ }
+  const problem = { file, line, col: 1, severity: 'error', message: err.message.split('\n')[0], source: 'import std', notes: err.message.includes('\n') ? [{ file: '', line: 0, col: 0, severity: 'info', message: err.message.split('\n').slice(1).join(' ').slice(0, 600) }] : [] };
+  api.broadcast('build.output', { runId: 'modules', text: `${err.message}\n` });
+  return { code: 1, problems: [problem], kind: 'single', exe: null, lang: tc.lang };
+}
 
 // gdb on one file, no CMake needed: compiled -O0 -g, stopped at your line
 async function debugSingle({ file, line, args = '' }) {
@@ -198,7 +218,14 @@ async function sandboxRun({ source, compiler, std, lang = 'cpp', tool }) {
   const flags = vg ? [...NO_SANITIZERS(cfg.build.sandboxFlags).filter((f) => !/^-O/.test(f)), '-O0', '-g'] : platform.sanitizerFlags(cfg.build.sandboxFlags, { cc: tc.cc });
   const out = path.join(dir, platform.exe(vg ? 'scratch-vg' : 'scratch'));
   const libs = tc.lang === 'c' ? ['-lm'] : [];
-  const res = await execStream({ cmd: tc.cc, args: [`-std=${tc.std}`, ...flags, '-o', out, file, ...libs], cwd: dir, title: `sandbox: ${tc.cc} -std=${tc.std}` });
+  let cmd = tc.cc, args = [`-std=${tc.std}`, ...flags, '-o', out, file, ...libs], note = '';
+  if (tc.lang === 'cpp') {
+    let m = null;
+    try { m = await require('./modules').prepareAny({ cc: tc.cc, std: tc.std, flags, file }); }
+    catch (err) { return { ok: false, ...moduleFailure(err, file, tc), file, lang: tc.lang }; }
+    if (m) { cmd = m.cc; args = [`-std=${m.std}`, ...flags, ...m.args, '-o', out, file, ...m.inputs]; note = m.note; }
+  }
+  const res = await execStream({ cmd, args, cwd: dir, title: `sandbox: ${cmd} -std=${args[0].slice(5)}${note ? ` (${note})` : ''}` });
   if (res.code !== 0) return { ok: false, ...res, file, lang: tc.lang, output: undefined };
   const term = runProgram({ cwd: dir, command: vg ? `${VALGRIND.join(' ')} ./scratch-vg` : `./${path.basename(out)}`, title: vg ? 'sandbox: valgrind' : 'sandbox: scratch', flags });
   return { ok: true, ...res, file, lang: tc.lang, output: undefined, terminal: term };

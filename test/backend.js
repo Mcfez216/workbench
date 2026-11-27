@@ -523,6 +523,37 @@ async function test(name, fn) {
     await assert.rejects(call('guides.read', { file: path.join(PROJ, 'CMakeLists.txt') }), /outside your vaults/);
   });
 
+  await test('import std; (C++23): the std module is built once and kept; a header that imports it works; g++ too old falls back to clang++', async () => {
+    const libcxx = require('child_process').spawnSync('clang++', ['-stdlib=libc++', '-print-file-name=libc++.modules.json'], { encoding: 'utf8' }).stdout.trim();
+    if (!libcxx.startsWith('/') || !fs.existsSync(libcxx)) { console.log('        (skipped: no libc++ module files here; apt install libc++-dev)'); return; }
+    const dir = fs.mkdtempSync(path.join(HOME, 'ppp-'));
+    const hello = path.join(dir, 'hello.cpp');
+    fs.writeFileSync(hello, 'import std;\n\nint main()\n{\n    std::cout << "Hello world!\\n";\n    return 0;\n}\n');
+    fs.writeFileSync(path.join(dir, 'PPP_support.h'), '// like Stroustrup\'s PPP_support.h: it imports std itself\nimport std;\ninline int twice(int x) { return 2 * x; }\n');
+    const drill = path.join(dir, 'drill.cpp');
+    fs.writeFileSync(drill, '#include "PPP_support.h"\n\nint main()\n{\n    std::vector<int> v{1, 2, 3};\n    std::println("{} {}", v.size(), twice(21));\n}\n');
+    const t0 = Date.now();
+    const a = await call('build.build', { file: hello });
+    assert.strictEqual(a.code, 0, JSON.stringify(a.problems));
+    const first = Date.now() - t0;
+    assert.match(a.note || '', /C\+\+23/);
+    assert.match(a.clangd.command.join(' '), /-fmodule-file=std=/);
+    assert.strictEqual(require('child_process').execFileSync(a.exe, { encoding: 'utf8' }), 'Hello world!\n');
+    const t1 = Date.now();
+    const b = await call('build.build', { file: hello });
+    assert.strictEqual(b.code, 0);
+    assert.ok(Date.now() - t1 < first, `the module is kept: ${Date.now() - t1} ms the second time, ${first} ms the first`);
+    const d = await call('build.build', { file: drill });
+    assert.strictEqual(d.code, 0, JSON.stringify(d.problems));
+    assert.strictEqual(require('child_process').execFileSync(d.exe, { encoding: 'utf8' }), '3 42\n');
+    // a commented-out import doesn't count; a plain #include program is untouched
+    fs.writeFileSync(hello, '// import std;\n#include <iostream>\nint main() { std::cout << "plain\\n"; }\n');
+    const p = await call('build.build', { file: hello });
+    assert.strictEqual(p.code, 0);
+    assert.strictEqual(p.clangd, undefined);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   await test('rust: a lone file, a Cargo project with tests, clippy, rustfmt, rustc --explain, the sandbox, the judge, new projects', async () => {
     const work = fs.mkdtempSync(path.join(HOME, 'rust-'));
     // a lone file: rustc's error lands on the line, with its notes
@@ -592,10 +623,10 @@ async function test(name, fn) {
     const home = fs.mkdtempSync(path.join(HOME, 'first-'));
     const run = (code) => JSON.parse(execFileSync(process.execPath, ['-e', code], { cwd: path.join(__dirname, '..'), env: { ...process.env, HOME: home, XDG_CONFIG_HOME: '', XDG_DATA_HOME: '' }, encoding: 'utf8' }));
     const first = run(`const c = require('./server/config').load(); console.log(JSON.stringify(c.vaults))`);
-    assert.deepStrictEqual(first, [{ path: path.join(home, 'Notes', 'C-Path'), name: 'C-Path' }, { path: path.join(home, 'Notes', 'CPP-Path'), name: 'CPP-Path' }]);
+    assert.deepStrictEqual(first, [{ path: path.join(home, 'Notes', 'C-Path'), name: 'C-Path' }, { path: path.join(home, 'Notes', 'CPP-Path'), name: 'CPP-Path' }, { path: path.join(home, 'Notes', 'Rust-Path'), name: 'Rust-Path' }]);
     const cpp = path.join(home, 'Notes', 'CPP-Path');
     assert.ok(fs.existsSync(path.join(cpp, 'CPP Start Here.md')) && fs.existsSync(path.join(home, 'Notes', 'C-Path', 'C Start Here.md')));
-    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(home, '.config', 'cpp-path-workbench', 'config.json'), 'utf8')).vaults.map((v) => v.name), ['C-Path', 'CPP-Path'], 'remembered');
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(home, '.config', 'cpp-path-workbench', 'config.json'), 'utf8')).vaults.map((v) => v.name), ['C-Path', 'CPP-Path', 'Rust-Path'], 'remembered');
     // your changes: an edited note, a daily note, a deleted note
     const edited = path.join(cpp, 'CPP Done Log.md');
     fs.writeFileSync(edited, '# My log\n');

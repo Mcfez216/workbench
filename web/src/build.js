@@ -150,6 +150,8 @@ function rememberMistakes(list) {
 export { rememberMistakes };
 
 function finishRun(r, okText, failText) {
+  if (r.clangd) import('./editor.js').then(({ tellClangd }) => tellClangd(r.clangd));
+  if (r.note) toast(r.note, 'info', 9000);
   // a fast program can report a runtime problem (a panic, a sanitizer
   // report) before the "it built" answer arrives: keep those
   const early = problems.filter((p) => p.runtime);
