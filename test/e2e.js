@@ -618,6 +618,27 @@ async function main() {
       for (const name of [/^count/, /^main\.cpp/]) await page.locator('.tab', { hasText: name }).first().locator('.tab-close').click();
     });
 
+    await step('the reference has Rust (Vec, Option, ?), and the comparisons have a Rust version of each job', async () => {
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('Reference (C, C++ and Rust)');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.tab-page.active .ref-list');
+      await page.locator('.tab-page.active .choices .choice', { hasText: 'Rust' }).click();
+      await page.locator('.tab-page.active .ref-list .list-row', { hasText: /^Option/ }).click();
+      await page.waitForSelector('.tab-page.active .ref-detail h1:has-text("Option")');
+      assert.match(await page.locator('.tab-page.active .ref-detail').innerText(), /Rust · \(prelude\)[\s\S]*Watch out[\s\S]*Rust docs/);
+      await page.keyboard.press('Control+W');
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('side by side');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.tab-page.active .compare');
+      assert.strictEqual(await page.locator('.tab-page.active .cmp-side .code-lang', { hasText: 'Rust' }).count(), 8);
+      await shot('23-compare');
+      await page.keyboard.press('Control+W');
+    });
+
     await step('the palette runs anything by name; New file makes a C program; the outline lists it', async () => {
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');

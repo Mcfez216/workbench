@@ -928,7 +928,7 @@ html[data-pixel="yes"] .viz-addr { font-size: 1em; }
 .compare .cmp-pair { margin: 2em 0; }
 .compare h2 { color: var(--accent); font-weight: normal; }
 .cmp-nav { columns: 2; }
-.cmp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(42ch, 1fr)); gap: 2ch; }
+.cmp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(38ch, 1fr)); gap: 2ch; }
 .cmp-side { min-width: 0; }
 .cmp-code { background: var(--code-bg); color: var(--code-fg); margin: 0; padding: 0.5em 1ch; overflow-x: auto; }
 .ref-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(22ch, 30ch) minmax(0, 1fr); }

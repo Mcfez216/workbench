@@ -11,10 +11,21 @@ import { REF } from './refdata.js';
 import { language } from './lang.js';
 
 const entries = REF.map(([name, lang, header, sig, what, pitfall, security]) => ({ name, lang, header, sig, what, pitfall, security }));
-export function lookup(word) {
-  const w = String(word || '').trim().replace(/^std::/, '').toLowerCase();
+const LABEL = { c: 'C', cpp: 'C++', rust: 'Rust' };
+// prefer: the language to look in first (a Rust file looks up Rust's Vec, not C++'s vector)
+export function lookup(word, prefer) {
+  const w = String(word || '').trim().replace(/^std::/, '').replace(/!$/, '').toLowerCase();
   if (!w) return null;
-  return entries.find((e) => e.name.toLowerCase() === w || e.name.toLowerCase() === `std::${w}`) || null;
+  const hits = entries.filter((e) => { const n = e.name.toLowerCase().replace(/!$/, ''); return n === w || n === `std::${w}` || n === `&${w}` || n.split('::').pop() === w && e.lang === 'rust'; });
+  return hits.find((e) => e.lang === prefer) || hits[0] || null;
+}
+function docsLink(e) {
+  if (e.lang === 'rust') return h('a', { class: 'btn', href: `https://doc.rust-lang.org/std/?search=${encodeURIComponent(e.name.replace(/[!&?]/g, '').split('::').pop())}`, target: '_blank', rel: 'noopener' }, 'Rust docs ↗');
+  return h('a', { class: 'btn', href: `https://en.cppreference.com/mwiki/index.php?search=${encodeURIComponent(e.name)}`, target: '_blank', rel: 'noopener' }, 'cppreference ↗');
+}
+function where(e) {
+  if (/^\(/.test(e.header)) return e.header;
+  return e.lang === 'rust' ? `use ${e.header};` : `#include <${e.header}>`;
 }
 
 function wordAtCursor() {
@@ -30,14 +41,15 @@ function wordAtCursor() {
 }
 
 function openReference(word) {
+  const prefer = (activeEditor() && /\.rs$/i.test(activeEditor().file || '')) ? 'rust' : language();
   const t = tabs.open({
     id: 'reference', kind: 'reference', title: 'Reference', session: { kind: 'page:help.reference' },
     render(el) {
-      this.search = h('input', { class: 'field', type: 'search', placeholder: 'printf, malloc, vector, unique_ptr...', 'aria-label': 'Look up' });
+      this.search = h('input', { class: 'field', type: 'search', placeholder: 'printf, malloc, vector, unique_ptr, Vec, Option...', 'aria-label': 'Look up' });
       this.filter = 'all';
       this.list = h('div', { class: 'ref-list' });
       this.detail = h('div', { class: 'ref-detail page' });
-      const tabsRow = h('div', { class: 'choices', role: 'group' }, [['all', 'All'], ['c', 'C'], ['cpp', 'C++']].map(([v, label]) => {
+      const tabsRow = h('div', { class: 'choices', role: 'group' }, [['all', 'All'], ['c', 'C'], ['cpp', 'C++'], ['rust', 'Rust']].map(([v, label]) => {
         const b = h('button', { type: 'button', class: 'choice', 'aria-pressed': String(v === 'all') }, label);
         b.addEventListener('click', () => { this.filter = v; tabsRow.querySelectorAll('.choice').forEach((c) => c.setAttribute('aria-pressed', String(c === b))); this.draw(); });
         return b;
@@ -49,7 +61,7 @@ function openReference(word) {
         clear(this.list);
         const shown = entries.filter((e) => (this.filter === 'all' || e.lang === this.filter) && (!q || e.name.toLowerCase().includes(q) || e.what.toLowerCase().includes(q)));
         for (const e of shown) {
-          const b = h('button', { type: 'button', class: 'list-row' + (this.sel === e ? ' sel' : '') }, h('span', { class: 'grow' }, e.name), h('span', { class: 'muted' }, e.lang === 'c' ? 'C' : 'C++'));
+          const b = h('button', { type: 'button', class: 'list-row' + (this.sel === e ? ' sel' : '') }, h('span', { class: 'grow' }, e.name), h('span', { class: 'muted' }, LABEL[e.lang]));
           b.addEventListener('click', () => this.show(e));
           this.list.append(b);
         }
@@ -62,24 +74,24 @@ function openReference(word) {
         this.sel = e;
         clear(this.detail);
         this.detail.append(h('div', { class: 'md' },
-          h('h1', {}, e.name), h('p', { class: 'muted' }, `${e.lang === 'c' ? 'C' : 'C++'} · ${/^\(/.test(e.header) ? e.header : `#include <${e.header}>`}`),
+          h('h1', {}, e.name), h('p', { class: 'muted' }, `${LABEL[e.lang]} · ${where(e)}`),
           h('pre', { class: 'ref-sig' }, e.sig),
           h('p', {}, e.what),
           e.pitfall ? h('div', { class: 'callout' }, h('div', { class: 'callout-title' }, 'Watch out'), h('div', { class: 'callout-body' }, e.pitfall)) : null,
           e.security ? h('div', { class: 'callout', 'data-callout': 'warning' }, h('div', { class: 'callout-title' }, 'Security'), h('div', { class: 'callout-body' }, e.security)) : null,
           h('div', { class: 'row' },
             e.lang === 'c' && /^[a-z_]+$/.test(e.name) ? h('button', { class: 'btn', type: 'button', onclick: () => manPage(`3 ${e.name}`) }, `man 3 ${e.name}`) : null,
-            h('a', { class: 'btn', href: `https://en.cppreference.com/mwiki/index.php?search=${encodeURIComponent(e.name)}`, target: '_blank', rel: 'noopener' }, 'cppreference ↗'))));
+            docsLink(e))));
         this.draw();
       };
-      this.search.addEventListener('input', () => { this.draw(); const hit = lookup(this.search.value); if (hit) this.show(hit); });
+      this.search.addEventListener('input', () => { this.draw(); const hit = lookup(this.search.value, prefer); if (hit) this.show(hit); });
       this.draw();
     },
   });
   if (word !== undefined) {
     t.search.value = word;
     t.draw();
-    const hit = lookup(word);
+    const hit = lookup(word, prefer);
     if (hit) t.show(hit);
     else { clear(t.detail); t.detail.append(h('p', {}, `"${word}" isn't in the built-in reference.`), t.moreButtons(word)); }
   }
@@ -96,7 +108,7 @@ export async function manPage(page) {
 }
 
 export function initReference() {
-  command('help.reference', 'Reference (C and C++ library)', [], () => openReference());
+  command('help.reference', 'Reference (C, C++ and Rust)', [], () => openReference());
   // Ctrl+Shift+H: the word under the cursor, here first
   command('help.cppref', 'Look it up', ['Ctrl+Shift+H'], () => openReference(wordAtCursor() || ''));
   command('help.man', 'man page...', [], async () => {
