@@ -595,6 +595,29 @@ async function main() {
       while (await page.locator('.tab', { hasText: /^mathx\.cpp/ }).count()) await page.locator('.tab', { hasText: /^mathx\.cpp/ }).first().locator('.tab-close').click();
     });
 
+    await step('build a real thing: Learn lists the tracks, Start makes the project, F7 shows what your program printed against what it should', async () => {
+      await page.locator('.side-head button', { hasText: 'Learn' }).click();
+      await page.waitForSelector('.ex-list .tree-group:has-text("Build a real thing")');
+      await page.locator('.ex-list .ex-row', { hasText: /^.?\s*count/ }).click();
+      await page.waitForSelector('.tab-page.active .track h1:has-text("count")');
+      await page.locator('.tab-page.active .track-lang .choice', { hasText: /^C\+\+$/ }).click();
+      await page.waitForFunction(() => document.querySelector('.tab-page.active .track-lang .choice[aria-pressed="true"]')?.innerText.trim() === 'C++');
+      await page.locator('.tab-page.active .track .btn', { hasText: 'Start in C++' }).click();
+      await page.waitForSelector('.tab:has-text("main.cpp")');
+      await page.waitForSelector('.tab-page .track .ex-step.current');
+      await page.locator('.tab', { hasText: /^count/ }).click();
+      await page.keyboard.press('F7');
+      await page.waitForSelector('.tab-page.active .track .ex-result', { timeout: 120000 });
+      const res = await page.locator('.tab-page.active .track .ex-result').innerText();
+      assert.match(res, /0 of 4 tests pass/);
+      assert.match(res, /\$ count -l/);
+      assert.match(res, /Expected/);
+      await page.locator('.tab-page.active .track .btn', { hasText: 'A hint' }).click();
+      await page.waitForSelector('.tab-page.active .track .ex-hints li');
+      await shot('22-track');
+      for (const name of [/^count/, /^main\.cpp/]) await page.locator('.tab', { hasText: name }).first().locator('.tab-close').click();
+    });
+
     await step('the palette runs anything by name; New file makes a C program; the outline lists it', async () => {
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');

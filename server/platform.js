@@ -57,7 +57,7 @@ function toolsDir(env = process.env) {
 }
 function toolDirs(env = process.env) {
   const t = toolsDir(env);
-  return ['llvm-mingw\\bin', 'llvm-mingw\\x86_64-w64-mingw32\\bin', 'w64devkit\\bin', 'cmake\\bin', 'ninja', 'mingit\\cmd', 'mingit\\usr\\bin', 'node', 'cargo\\bin']
+  return ['llvm-mingw\\bin', 'llvm-mingw\\x86_64-w64-mingw32\\bin', 'w64devkit\\bin', 'cmake\\bin', 'ninja', 'mingit\\cmd', 'mingit\\usr\\bin', 'node', 'cargo\\bin', 'mybin']
     .map((d) => path.join(t, ...d.split('\\')));
 }
 // Called once at start-up on Windows: the toolchain goes first on PATH

@@ -11,6 +11,7 @@ import { openFile, activeEditor } from './editor.js';
 import { renderMarkdown, renderInline } from './markdown.js';
 import { explain, explanationBox, remember } from './explain.js';
 import { startRun, finishRun } from './build.js';
+import { trackRows } from './tracks.js';
 
 let listEl = null;
 let items = [];
@@ -53,6 +54,8 @@ function render() {
       listEl.append(b);
     }
   }
+  // programs you build a milestone at a time (tracks.js)
+  listEl.append(trackRows());
 }
 
 // ------------------------------------------------------------------ the exercise tab
@@ -270,6 +273,7 @@ export function initExercises() {
     },
   });
   on('exercises.changed', () => { if (listEl) refreshExercises(); });
+  window.addEventListener('cpw-tracks-changed', () => { if (listEl) render(); });
   call('exercises.list').then((l) => { items = l; }).catch(() => {});
   command('learn.show', 'Exercises', [], () => sidebar.show('learn'));
   command('exercise.open', 'Open an exercise', [], (id) => openExercise(id), { needsArgs: true });

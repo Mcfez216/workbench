@@ -728,6 +728,39 @@ async function test(name, fn) {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  await test('build a real thing: a project, the starter fails, the finished program passes every milestone, install puts it on PATH; Rust too', async () => {
+    const tl = await call('tracks.list');
+    assert.deepStrictEqual(tl.map((t) => t.id), ['count', 'todo', 'adventure', 'kv', 'jsonq']);
+    const o = await call('tracks.open', { id: 'count', lang: 'c' });
+    assert.ok(fs.existsSync(path.join(path.dirname(path.dirname(o.main)), 'CMakeLists.txt')));
+    const a = await call('tracks.check', { id: 'count', lang: 'c' });
+    assert.strictEqual(a.compiled, true);
+    assert.strictEqual(a.passed, false);
+    assert.strictEqual(a.milestone, 0);
+    assert.match(a.results[0].fails[0].cmd, /^count -l/);
+    // the finished version: milestone after milestone
+    fs.copyFileSync(path.join(__dirname, '..', 'server', 'tracks', 'count', 'solution.c'), o.main);
+    let r;
+    for (let i = 0; i < 5; i++) { r = await call('tracks.check', { id: 'count', lang: 'c' }); assert.strictEqual(r.passed, true, JSON.stringify(r.results).slice(0, 500)); assert.strictEqual(r.milestone, i); }
+    assert.strictEqual(r.finished, true);
+    const g = await call('tracks.get', { id: 'count', lang: 'c' });
+    assert.strictEqual(g.reached, 5);
+    const ins = await call('tracks.install', { id: 'count', lang: 'c' });
+    assert.ok(ins.ok);
+    assert.strictEqual(require('child_process').execFileSync(ins.path, ['-w'], { input: 'one two three\n', encoding: 'utf8' }), '3\n');
+    // a compile error is a compile error
+    fs.writeFileSync(o.main, 'int main(void) { return x; }\n');
+    const bad = await call('tracks.check', { id: 'count', lang: 'c' });
+    assert.strictEqual(bad.compiled, false);
+    assert.ok(bad.problems.some((p) => p.severity === 'error'));
+    if (require('./../server/platform').which('cargo')) {
+      const ro = await call('tracks.open', { id: 'kv', lang: 'rust' });
+      fs.copyFileSync(path.join(__dirname, '..', 'server', 'tracks', 'kv', 'solution.rs'), ro.main);
+      const rr = await call('tracks.check', { id: 'kv', lang: 'rust' });
+      assert.strictEqual(rr.passed, true, JSON.stringify(rr).slice(0, 500));
+    }
+  });
+
   await test('course vaults: copied to ~/Notes on the first start; new notes later, your edits never replaced', async () => {
     const { execFileSync } = require('child_process');
     const home = fs.mkdtempSync(path.join(HOME, 'first-'));

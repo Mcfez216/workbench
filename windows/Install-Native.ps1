@@ -97,7 +97,7 @@ $Pins = @(
 # the system PATH before the user one, so Windows' own find.exe and sort.exe
 # still win over the Unix ones in w64devkit, and anything you already had
 # (your own Node.js, Git or Python) still comes first.
-$PathDirs = @('llvm-mingw\bin', 'llvm-mingw\x86_64-w64-mingw32\bin', 'w64devkit\bin', 'cmake\bin', 'ninja', 'mingit\cmd', 'node', 'cargo\bin')
+$PathDirs = @('llvm-mingw\bin', 'llvm-mingw\x86_64-w64-mingw32\bin', 'w64devkit\bin', 'cmake\bin', 'ninja', 'mingit\cmd', 'node', 'cargo\bin', 'mybin')
 function UserPath {
     $k = Get-Item -Path 'HKCU:\Environment'
     # unexpanded, so entries like %USERPROFILE%\bin stay as they were
@@ -118,6 +118,8 @@ function AnnounceEnvironment([string]$name, $value) {
     [Environment]::SetEnvironmentVariable($name, $value, 'User')
 }
 function AddToUserPath {
+    # mybin: the programs you build and install from MHDE (Build a real thing)
+    New-Item -ItemType Directory -Force -Path (Join-Path $Tools 'mybin') | Out-Null
     $old = @((UserPath) -split ';' | Where-Object { $_ -ne '' })
     $keep = @($old | Where-Object { -not (IsOurs $_) })   # ours from an older install go
     $ours = @($PathDirs | ForEach-Object { Join-Path $Tools $_ } | Where-Object { Test-Path $_ })

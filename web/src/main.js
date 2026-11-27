@@ -15,6 +15,7 @@ import { initComfort, applyComfort } from './comfort.js';
 import { initProgress } from './progress.js';
 import { initMemviz } from './memviz.js';
 import { initDebugger } from './debugger.js';
+import { initTracks } from './tracks.js';
 import { initCompare } from './compare.js';
 import { initReference } from './reference.js';
 import { initSecurity } from './security.js';
@@ -292,6 +293,7 @@ async function restoreSession() {
       else if (s.kind === 'welcome') runCommand('help.welcome');
       else if (s.kind === 'start') runCommand('help.start');
       else if (s.kind === 'exercise') await runCommand('exercise.open', s.ex);
+      else if (s.kind === 'track') await import('./tracks.js').then((m) => m.openTrack(s.track));
       else if (s.kind && s.kind.startsWith('page:')) runCommand(s.kind.slice(5));
     } catch (err) { /* the file moved; skip it */ }
   }
@@ -323,7 +325,7 @@ async function boot() {
   buildShell(root, FKEYS);
   initEditorCommands(); initFiles(); initExercises(); initOutline(); initTerminal(); initBuild(); initTests(); initJudge(); initGit(); initGuides(); initNotes(); initRevise();
   await initIrc(); initMail(); initMusic(); initSettings(); initWelcome(); initPalette(); initNewStuff(); initStart();
-  initComfort(); initProgress(); initMemviz(); initDebugger(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
+  initComfort(); initProgress(); initMemviz(); initDebugger(); initTracks(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
   applyComfort(cfg);
   menubar.build(MENUS);
   toolbar.build(TOOLBAR);

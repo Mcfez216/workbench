@@ -235,7 +235,11 @@ export function initTests() {
   command('test.all', 'Run all tests (ctest), or check the exercise', ['F7'], async () => {
     const { currentExercise, checkExercise } = await import('./exercises.js');
     const id = currentExercise();
-    return id ? checkExercise(id) : runAll();
+    if (id) return checkExercise(id);
+    // a track's page or one of its project's files: check the milestone
+    const { currentTrack, checkTrack } = await import('./tracks.js');
+    const tr = currentTrack();
+    return tr ? checkTrack(tr) : runAll();
   });
   command('test.here', 'Run the test under the cursor', ['Shift+F7'], runHere);
   command('test.show', 'Tests, projects and programs', [], () => sidebar.show('tests'));

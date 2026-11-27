@@ -978,3 +978,15 @@ pre.disasm, pre.hexdump { background: var(--code-bg); color: var(--code-fg); pad
 @media (max-width: 900px) { .dbg-grid { grid-template-columns: 1fr; } }
 .dbg .link { background: none; border: none; box-shadow: none; color: var(--link); cursor: pointer; padding: 0 0.3em; font: inherit; }
 .dbg .link:hover { text-decoration: underline; }
+
+/* ---- Build a real thing (tracks.js) */
+.track-lang { margin: 0.6em 0; display: inline-flex; }
+.tr-tests ul { margin: 0.2em 0; }
+.tr-tests code { white-space: pre-wrap; word-break: break-all; }
+.tr-test { margin-top: 0.4em; }
+.tr-test.bad { color: var(--error); }
+.tr-fail { margin: 0.2em 0 0.6em 3ch; padding-left: 1ch; border-left: 2px solid var(--error); }
+.tr-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1ch; }
+.tr-cols pre, .tr-fail pre { margin: 0.2em 0; padding: 0.3em 0.6ch; background: var(--code-bg); color: var(--code-fg); max-height: 16em; overflow: auto; white-space: pre-wrap; }
+.solution-view { padding: 1em 2ch; height: 100%; overflow: auto; box-sizing: border-box; margin: 0; }
+.track .ex-step-head { flex-wrap: wrap; }
