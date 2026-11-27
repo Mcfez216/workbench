@@ -252,7 +252,15 @@ its project publishes:
 | Rust (rustup) | rustc, cargo, clippy, rustfmt and rust-analyzer, the GNU toolchain (skip it with `-NoRust`; if it can't download, the rest works without it) |
 
 then the app and its Electron window, and puts **McFez's HomeBrew Development Environment (MHDE)
-(Windows)** in the Start menu. The shortcut starts `electron.exe` directly,
+(Windows)** in the Start menu.
+
+**Your PATH is set for you.** The tool folders are added to the end of your
+*user* PATH (no administrator rights), with `RUSTUP_HOME` and `CARGO_HOME`, so
+`clang++`, `gcc`, `gdb`, `cmake`, `ninja`, `git` and `cargo` work in any new
+Command Prompt, PowerShell or VS Code window, not only in MHDE. Things you
+already had on PATH (your own Node.js, Git or Python) still come first, and
+so do Windows' own commands. Running the installer again doesn't add them
+twice; *Uninstall* takes them off again. `-NoPath` leaves your PATH alone. The shortcut starts `electron.exe` directly,
 with no script in between, so it works where group policy blocks Windows
 Script Host. Downloads go through the proxy with your
 Windows sign-in; if one is blocked, the installer says where to download it

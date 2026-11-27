@@ -946,6 +946,12 @@ async function test(name, fn) {
     // Rust: rustup-init from rust-lang.org over https, checked against its .sha256, and optional
     assert.match(ps, /\$rustupFrom = 'https:\/\/static\.rust-lang\.org\/rustup\/dist\/x86_64-pc-windows-gnu\/rustup-init\.exe'/);
     assert.match(ps, /"\$rustupFrom\.sha256"[\s\S]*isn't the file rust-lang\.org published[\s\S]*Rust didn't install/);
+    // your PATH: the user one only (no admin), unexpanded entries kept, ours at the end, undone by -Uninstall
+    assert.match(ps, /OpenSubKey\('Environment', \$true\)[\s\S]*RegistryValueKind\]::ExpandString/);
+    assert.match(ps, /DoNotExpandEnvironmentNames/);
+    assert.match(ps, /SetUserPath \(\(\$keep \+ \$ours\) -join ';'\)/);
+    assert.match(ps, /if \(\$Uninstall\) \{\s*Say [^\n]*\s*RemoveFromUserPath/);
+    assert.ok(!/'Machine'/.test(ps), 'never the system-wide PATH');
     assert.doesNotMatch(ps, /Invoke-Expression|\biex\b|-NoProxy \$true|\$a\.NoProxy/);
     assert.match(ps, /\$env:NODE_EXTRA_CA_CERTS = \$CertFile/);
     fs.rmSync(world, { recursive: true, force: true });

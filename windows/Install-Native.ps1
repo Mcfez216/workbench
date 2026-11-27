@@ -12,7 +12,10 @@
 #                       if the network blocks a download, and run this again
 #   -NoDesktop          no desktop shortcut
 #   -NoRust             skip Rust (rustup, rustc, cargo, rust-analyzer)
-#   -Uninstall          removes the app, its tools and the shortcuts
+#   -NoPath             don't add the tools to your user PATH (they're still
+#                       on MHDE's own PATH; other programs won't find them)
+#   -Uninstall          removes the app, its tools, the shortcuts and the PATH
+#                       entries it added
 #                       (your settings, notes and code stay)
 #
 # No administrator rights, nothing outside your own user folders. Everything
@@ -40,6 +43,7 @@ param(
     [string]$Downloads = '',
     [switch]$NoDesktop,
     [switch]$NoRust,
+    [switch]$NoPath,
     [switch]$Uninstall
 )
 
@@ -86,9 +90,62 @@ $Pins = @(
        Url = 'https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/MinGit-2.56.1-64-bit.zip'; Repo = 'git-for-windows/git'; Tag = 'v2.56.1.windows.1' }
 )
 
+# ------------------------------------------------------------------ your PATH
+# So clang++, gcc, gdb, cmake, git, cargo... work in any Command Prompt,
+# PowerShell or editor, not only in MHDE: the tool folders go at the END of
+# your user PATH (HKCU\Environment, no administrator rights). Windows puts
+# the system PATH before the user one, so Windows' own find.exe and sort.exe
+# still win over the Unix ones in w64devkit, and anything you already had
+# (your own Node.js, Git or Python) still comes first.
+$PathDirs = @('llvm-mingw\bin', 'llvm-mingw\x86_64-w64-mingw32\bin', 'w64devkit\bin', 'cmake\bin', 'ninja', 'mingit\cmd', 'node', 'cargo\bin')
+function UserPath {
+    $k = Get-Item -Path 'HKCU:\Environment'
+    # unexpanded, so entries like %USERPROFILE%\bin stay as they were
+    return [string]$k.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+}
+function SetUserPath([string]$value) {
+    $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+    $k.SetValue('Path', $value, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+    $k.Close()
+}
+function IsOurs([string]$entry) {
+    $e = [Environment]::ExpandEnvironmentVariables($entry).TrimEnd('\')
+    return $e.StartsWith($Tools.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)
+}
+# Setting a user variable through .NET tells open programs (Explorer, new
+# terminals) that the environment changed; the registry write alone doesn't.
+function AnnounceEnvironment([string]$name, $value) {
+    [Environment]::SetEnvironmentVariable($name, $value, 'User')
+}
+function AddToUserPath {
+    $old = @((UserPath) -split ';' | Where-Object { $_ -ne '' })
+    $keep = @($old | Where-Object { -not (IsOurs $_) })   # ours from an older install go
+    $ours = @($PathDirs | ForEach-Object { Join-Path $Tools $_ } | Where-Object { Test-Path $_ })
+    SetUserPath (($keep + $ours) -join ';')
+    foreach ($d in $ours) { Write-Host "on PATH   $d" }
+    # rustup's programs find their toolchains through these, from any terminal
+    foreach ($v in @(@('RUSTUP_HOME', (Join-Path $Tools 'rustup')), @('CARGO_HOME', (Join-Path $Tools 'cargo')))) {
+        $now = [Environment]::GetEnvironmentVariable($v[0], 'User')
+        if ((Test-Path $v[1]) -and (-not $now -or $now -eq $v[1])) { [Environment]::SetEnvironmentVariable($v[0], $v[1], 'User'); Write-Host "set       $($v[0])=$($v[1])" }
+        elseif ($now -and $now -ne $v[1]) { Warn "$($v[0]) is already set to $now; left alone (MHDE uses its own)" }
+    }
+    AnnounceEnvironment 'MHDE_TOOLS' $Tools
+}
+function RemoveFromUserPath {
+    $old = @((UserPath) -split ';' | Where-Object { $_ -ne '' })
+    $keep = @($old | Where-Object { -not (IsOurs $_) })
+    if ($keep.Count -ne $old.Count) { SetUserPath ($keep -join ';'); Write-Host "removed   $($old.Count - $keep.Count) folder(s) from your PATH" }
+    foreach ($n in @('RUSTUP_HOME', 'CARGO_HOME')) {
+        $now = [Environment]::GetEnvironmentVariable($n, 'User')
+        if ($now -and (IsOurs $now)) { [Environment]::SetEnvironmentVariable($n, $null, 'User') }
+    }
+    AnnounceEnvironment 'MHDE_TOOLS' $null
+}
+
 # ------------------------------------------------------------------ uninstall
 if ($Uninstall) {
     Say "Removing $AppName (Windows version)"
+    RemoveFromUserPath
     foreach ($p in (@($StartMenu, $DesktopLink, $Root) + $OldLinks)) {
         if (Test-Path -LiteralPath $p) { Remove-Item -Recurse -Force -LiteralPath $p; Write-Host "removed $p" }
     }
@@ -298,6 +355,13 @@ foreach ($t in @('clangd', 'clang-tidy', 'clang-format')) {
     if (-not (Get-Command $t -ErrorAction SilentlyContinue)) { Write-Host "($t isn't in this llvm-mingw: the editor works without it, with less help as you type)" }
 }
 
+if ($NoPath) {
+    Write-Host '(your PATH left alone: -NoPath. The tools are on MHDE''s own PATH only.)'
+} else {
+    Say 'Your PATH (so the tools work in any terminal, not only in MHDE)'
+    try { AddToUserPath } catch { Warn "Couldn't change your PATH: $($_.Exception.Message). MHDE works anyway; only other programs won't find the tools." }
+}
+
 # ------------------------------------------------------------------ the app
 Say "The app, into $App"
 if (-not (Test-Path (Join-Path $Source 'package.json'))) { Fail "Can't find the app next to this script ($Source)." }
@@ -370,5 +434,6 @@ if (-not $NoDesktop) {
 Write-Host ''
 Write-Host "Done. Start $AppName (Windows) from the Start menu or your desktop." -ForegroundColor Cyan
 Write-Host 'Your notes vault can stay in Documents or OneDrive: add it in Guides -> Add a vault.'
+if (-not $NoPath) { Write-Host 'clang++, gcc, gdb, cmake, git and cargo now work in any NEW terminal window (ones already open keep the old PATH).' }
 Write-Host "To update later: download the new version and run 'Install on Windows (no WSL).cmd' again."
 if (Ask 'Start it now?') { Start-Process -FilePath $electron -ArgumentList $appArg -WorkingDirectory $App }
