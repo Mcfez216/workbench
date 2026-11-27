@@ -102,10 +102,12 @@ function defaults() {
       std: 'c++20',
       cCompiler: DEFAULT_CC.cCompiler, // the same for C: gcc or clang
       cStd: 'c17',
+      rustEdition: '2024',       // Rust: 2021 or 2024 (rustc --edition)
       sandboxFlags: ['-Wall', '-Wextra', '-Wpedantic', '-g', '-O0', '-fsanitize=address,undefined', '-fno-omit-frame-pointer'],
     },
     judge: { timeLimitMs: 2000, flags: ['-O2', '-Wall'] },
     tidy: { checks: '' },        // empty: your .clang-tidy file, or clang-tidy's defaults
+    rustAnalyzer: true,          // rust-analyzer for .rs files (rustup component add rust-analyzer)
     clangd: { enabled: true, command: 'clangd', args: ['--background-index', '--clang-tidy', '--header-insertion=never', '--completion-style=detailed', '--function-arg-placeholders=false'] },
     irc: {
       host: 'irc.libera.chat', port: 6697, tls: true,
@@ -176,7 +178,7 @@ function normalize(c) {
   }
   c.vault = c.vaults[0] ? c.vaults[0].path : null;
   c.folders = (Array.isArray(c.folders) ? c.folders : []).map(String).map((f) => f.trim()).filter(Boolean);
-  if (!['c', 'cpp'].includes(c.language)) c.language = 'cpp';
+  if (!['c', 'cpp', 'rust'].includes(c.language)) c.language = 'cpp';
   return c;
 }
 

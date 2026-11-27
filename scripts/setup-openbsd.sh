@@ -40,7 +40,7 @@ echo "OpenBSD $(uname -r) on $(uname -m)"
 # Required: the app can't start or build without these
 NEED="node git cmake ninja gdb python%3 chromium"
 # Wanted: the app works without them, with that feature switched off
-WANT="clang-tools-extra cppcheck ripgrep"
+WANT="clang-tools-extra cppcheck ripgrep rust rust-clippy rust-rustfmt rust-analyzer"
 [ "$(uname -m)" = amd64 ] && WANT="$WANT valgrind"
 
 say "Packages: $NEED (and if they're there: $WANT)"
@@ -66,7 +66,7 @@ npm install --no-audit --no-fund
 node scripts/build-web.js
 
 say "Checking the tools"
-for t in c++ cc egdb cmake ninja clangd clang-tidy cppcheck python3 chrome; do
+for t in c++ cc egdb cmake ninja clangd clang-tidy cppcheck python3 chrome rustc cargo; do
 	if command -v "$t" >/dev/null 2>&1; then printf '  ok       %s\n' "$t"; else printf '  missing  %s\n' "$t"; fi
 done
 node scripts/app-window.js --check || true

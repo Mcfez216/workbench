@@ -16,13 +16,16 @@ const untilde = async (p) => p.replace(/^~(?=\/|$)/, await home());
 export async function newFileDialog(dir, preset = {}) {
   const { workspaceRoot } = await import('./files.js');
   const start = dir || workspaceRoot() || '~';
-  const lang = choices([['c', 'C'], ['cpp', 'C++']], preset.lang || language(), { label: 'Language' });
-  const kinds = () => [
+  const lang = choices([['c', 'C'], ['cpp', 'C++'], ['rust', 'Rust']], preset.lang || language(), { label: 'Language' });
+  const kinds = () => (lang.value === 'rust' ? [
+    ['main', 'Program', 'A .rs file with fn main(): run it straight away (Ctrl+F9)'],
+    ['source', 'Module', 'An empty .rs file, for a module in a Cargo project (add mod name; to main.rs or lib.rs)'],
+  ] : [
     ['main', 'Program', 'A source file with main(): something you can run straight away (Ctrl+F9)'],
     ['source', 'Source file', 'An empty .c / .cpp file'],
     ['header', 'Header', lang.value === 'c' ? 'A .h file with an include guard' : 'A .hpp file with #pragma once'],
     ['pair', lang.value === 'c' ? 'Module (.h + .c)' : 'Class (.hpp + .cpp)', lang.value === 'c' ? 'An opaque struct with create/destroy functions, header and source' : 'A class, its header and its source'],
-  ];
+  ]);
   let kind = choices(kinds(), preset.kind || 'main', { label: 'What kind' });
   const kindHost = h('div', {}, kind);
   const name = h('input', { class: 'field', type: 'text', placeholder: 'hello', spellcheck: 'false' });
@@ -37,7 +40,7 @@ export async function newFileDialog(dir, preset = {}) {
     return `${n}.${kind.value === 'header' ? l.header : l.ext}`;
   };
   const update = () => { preview.textContent = fileName() ? `Creates ${folder.value.replace(/\/+$/, '')}/${fileName()}` : 'Type a name; the extension is added for you.'; };
-  const rebuildKinds = () => { const v = kind.value; const k = choices(kinds(), v, { label: 'What kind' }); k.addEventListener('change', update); kindHost.replaceChildren(k); kind = k; update(); };
+  const rebuildKinds = () => { const v = kinds().some(([k]) => k === kind.value) ? kind.value : 'main'; const k = choices(kinds(), v, { label: 'What kind' }); k.addEventListener('change', update); kindHost.replaceChildren(k); kind = k; update(); };
   lang.addEventListener('change', rebuildKinds);
   kind.addEventListener('change', update);
   name.addEventListener('input', update);
@@ -71,10 +74,10 @@ async function newProject() {
   const { workspaceRoot } = await import('./files.js');
   const ws = workspaceRoot();
   const parentGuess = ws ? ws.replace(/\/[^/]+\/?$/, '') || ws : '~';
-  const lang = choices([['c', 'C (C17)'], ['cpp', 'C++ (C++20)']], language(), { label: 'Language' });
+  const lang = choices([['c', 'C (C17)'], ['cpp', 'C++ (C++20)'], ['rust', 'Rust (Cargo)']], language(), { label: 'Language' });
   const kind = choices([
-    ['console', 'Program', 'One executable: src/main'],
-    ['library', 'Library + tests', 'A library in src/ and include/, a program that uses it, and tests CTest runs (F7)'],
+    ['console', 'Program', 'One program: src/main'],
+    ['library', 'Library + tests', 'A library, a program that uses it, and tests F7 runs (CTest, or cargo test for Rust)'],
   ], 'console', { label: 'Kind' });
   const name = h('input', { class: 'field', type: 'text', placeholder: 'my_project', spellcheck: 'false', id: 'np-name' });
   const where = h('input', { class: 'field', type: 'text', value: pathText(parentGuess).replace(/‎/g, ''), spellcheck: 'false', id: 'np-dir' });
@@ -83,6 +86,10 @@ async function newProject() {
   const preview = h('div', { class: 'hint small muted' });
   const update = () => {
     const n = name.value.trim().replace(/[^A-Za-z0-9_]+/g, '_') || '<name>';
+    if (lang.value === 'rust') {
+      preview.textContent = `${where.value.replace(/\/+$/, '')}/${n}/: Cargo.toml, ${kind.value === 'library' ? 'src/lib.rs (with tests), src/main.rs' : 'src/main.rs'}, rustfmt.toml, .gitignore, README.md. Debug builds check every index and integer overflow.`;
+      return;
+    }
     const ext = lang.value === 'c' ? 'c' : 'cpp';
     preview.textContent = `${where.value.replace(/\/+$/, '')}/${n}/: CMakeLists.txt, src/main.${ext}${kind.value === 'library' ? `, src/${n}.${ext}, include/${n}.${lang.value === 'c' ? 'h' : 'hpp'}, tests/test_${n}.${ext}` : ''}, .clang-format, .gitignore, README.md. Debug builds have AddressSanitizer and UBSan on.`;
   };
@@ -114,7 +121,7 @@ async function newProject() {
   } else await files.addFolder(r.root);
   sidebar.show('files');
   await openFile(r.main);
-  toast(`Made ${r.root.split('/').pop()}${r.git ? ' (a git repository)' : ''}. Alt+F9 configures, F9 builds, Ctrl+F9 runs${kind.value === 'library' ? ', F7 tests' : ''}.`, 'ok', 9000);
+  toast(`Made ${r.root.split('/').pop()}${r.git ? ' (a git repository)' : ''}. ${lang.value === 'rust' ? '' : 'Alt+F9 configures, '}F9 builds, Ctrl+F9 runs${kind.value === 'library' ? ', F7 tests' : ''}.`, 'ok', 9000);
 }
 
 // ------------------------------------------------------------------ pick from a list

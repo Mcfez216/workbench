@@ -5,6 +5,8 @@
 import { HighlightStyle, StreamLanguage } from '@codemirror/language';
 import { tags as t, tagHighlighter, highlightCode } from '@lezer/highlight';
 import { parser as cppParser } from '@lezer/cpp';
+import { rustLanguage } from '@codemirror/lang-rust';
+const rustParser = rustLanguage.parser;
 import { shell } from '@codemirror/legacy-modes/mode/shell';
 import { diff } from '@codemirror/legacy-modes/mode/diff';
 
@@ -41,7 +43,7 @@ const classHL = tagHighlighter(groups.map(([name, tags]) => ({ tag: tags, class:
 
 const shellParser = StreamLanguage.define(shell).parser;
 const diffParser = StreamLanguage.define(diff).parser;
-const PARSERS = { c: cppParser, h: cppParser, cpp: cppParser, 'c++': cppParser, bash: shellParser, sh: shellParser, shell: shellParser, console: shellParser, diff: diffParser, patch: diffParser };
+const PARSERS = { rust: rustParser, rs: rustParser, c: cppParser, h: cppParser, cpp: cppParser, 'c++': cppParser, bash: shellParser, sh: shellParser, shell: shellParser, console: shellParser, diff: diffParser, patch: diffParser };
 
 // Code -> HTML string with tok-* spans. Unknown languages come back escaped.
 export function highlightToHtml(code, lang) {

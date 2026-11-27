@@ -168,11 +168,12 @@ async function openFor(file) {
     return open(src, /\.c$/.test(file) ? 'c' : 'cpp', file.split('/').pop());
   }
   const t = tabs.active();
+  if (t && t.id === 'sandbox' && t.view && t.langId === 'rust') return toast('The memory view is for C and C++. In Rust, the borrow checker does this job while compiling: the vault\'s ownership notes draw the same boxes and arrows.', 'info', 9000);
   if (t && t.id === 'sandbox' && t.view) return open(t.view.state.doc.toString(), t.langId, `the ${t.langId === 'c' ? 'C' : 'C++'} sandbox`);
   const e = activeEditor();
   if (e && /\.(c|cpp|cc|cxx)$/.test(e.file) && /\bmain\s*\(/.test(e.view.state.doc.toString())) return open(e.view.state.doc.toString(), /\.c$/.test(e.file) ? 'c' : 'cpp', e.title);
   const sb = tabs.get('sandbox');
-  if (sb && sb.view) return open(sb.view.state.doc.toString(), sb.langId, 'the sandbox');
+  if (sb && sb.view && sb.langId !== 'rust') return open(sb.view.state.doc.toString(), sb.langId, 'the sandbox');
   const src = language() === 'c'
     ? '#include <stdio.h>\n#include <stdlib.h>\n\nstatic void bump(int *x) {\n    *x += 1;\n}\n\nint main(void) {\n    int a[3] = {1, 2, 3};\n    int *p = &a[1];\n    int *h = malloc(sizeof *h);\n    *h = 42;\n    bump(p);\n    printf("%d %d\\n", a[1], *h);\n    free(h);\n    return 0;\n}\n'
     : '#include <iostream>\n#include <memory>\n#include <vector>\n\nint main() {\n    std::vector<int> v{1, 2};\n    v.push_back(3);\n    auto p = std::make_unique<int>(7);\n    int* raw = p.get();\n    std::cout << *raw << \'\\n\';\n    return 0;\n}\n';

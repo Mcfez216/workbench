@@ -11,6 +11,7 @@
 #   -Downloads <folder> where the downloads are kept; put files there by hand
 #                       if the network blocks a download, and run this again
 #   -NoDesktop          no desktop shortcut
+#   -NoRust             skip Rust (rustup, rustc, cargo, rust-analyzer)
 #   -Uninstall          removes the app, its tools and the shortcuts
 #                       (your settings, notes and code stay)
 #
@@ -21,6 +22,9 @@
 #   tools\w64devkit   gcc, gdb (debugging, the memory view), make, and a small
 #                     Unix shell with ls, grep, cat... so the guides' commands work
 #   tools\cmake, tools\ninja, tools\mingit   CMake, Ninja and Git
+#   tools\rustup, tools\cargo   Rust through rustup (rustc, cargo, clippy,
+#                     rustfmt, rust-analyzer), the GNU toolchain, which
+#                     brings its own linker
 #   app               the app itself, with its own Electron window
 # Each download is a pinned version, checked against the SHA-256 its project
 # publishes (Node.js's SHASUMS256.txt, GitHub's release digests).
@@ -35,6 +39,7 @@ param(
     [switch]$NoProxy,
     [string]$Downloads = '',
     [switch]$NoDesktop,
+    [switch]$NoRust,
     [switch]$Uninstall
 )
 
@@ -232,11 +237,60 @@ foreach ($pin in $Pins) {
     Set-Content -Encoding ASCII -Path $stamp -Value $pin.File
 }
 
+# ------------------------------------------------------------------ Rust
+# rustup-init.exe, checked against the .sha256 rust-lang.org publishes next
+# to it, installs into tools\rustup and tools\cargo (not your profile, and
+# PATH isn't changed: the app puts tools\cargo\bin on its own PATH). Rust is
+# optional: if it can't be had, the C and C++ parts work all the same.
+$env:RUSTUP_HOME = Join-Path $Tools 'rustup'
+$env:CARGO_HOME = Join-Path $Tools 'cargo'
+$rustupExe = Join-Path $env:CARGO_HOME 'bin\rustup.exe'
+if ($NoRust) {
+    Write-Host '(Rust skipped: -NoRust)'
+} elseif (Test-Path $rustupExe) {
+    Say 'Rust (already here: updating)'
+    & $rustupExe update stable
+    & $rustupExe component add rust-analyzer clippy rustfmt
+    if ($LASTEXITCODE -ne 0) { Warn 'rustup update had a problem (see above); the Rust that was there is still there.' }
+} else {
+    Say 'Rust (rustup: rustc, cargo, clippy, rustfmt, rust-analyzer)'
+    $rustupFrom = 'https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-gnu/rustup-init.exe'
+    $rFile = Join-Path $Cache 'rustup-init.exe'
+    try {
+        $want = ''
+        try {
+            $sum = Web "$rustupFrom.sha256"
+            if ($sum -is [byte[]]) { $sum = [Text.Encoding]::ASCII.GetString($sum) }
+            $want = ([string]$sum).Trim().Split(' ')[0].ToLower()
+        } catch { $want = '' }
+        if (-not (Test-Path $rFile)) {
+            Write-Host 'download  rustup-init.exe'
+            Web $rustupFrom "$rFile.part"; Move-Item -Force "$rFile.part" $rFile
+        }
+        $got = (Get-FileHash -Algorithm SHA256 $rFile).Hash.ToLower()
+        if ($want -match '^[0-9a-f]{64}$') {
+            if ($got -ne $want) { Remove-Item -Force $rFile; throw "rustup-init.exe isn't the file rust-lang.org published (SHA-256 $got, expected $want); it was deleted" }
+            Write-Host 'checked   rustup-init.exe (SHA-256 matches)'
+        } else {
+            Warn "rustup-init.exe: no published checksum could be fetched to compare with (SHA-256 $got). Carrying on."
+        }
+        # rustup downloads the toolchain itself; it uses the same proxy
+        if ($Proxy -and -not $NoProxy) { $env:HTTPS_PROXY = $Proxy; $env:HTTP_PROXY = $Proxy }
+        & $rFile -y --no-modify-path --profile default --default-host x86_64-pc-windows-gnu --default-toolchain stable --component rust-analyzer
+        if ($LASTEXITCODE -ne 0) { throw "rustup-init exited with $LASTEXITCODE" }
+    } catch {
+        Remove-Item -Force -ErrorAction SilentlyContinue "$rFile.part"
+        Warn ("Rust didn't install: $($_.Exception.Message)`n" +
+            "    The C and C++ parts work without it. To try again: run this again.`n" +
+            "    If the network blocks it, download $rustupFrom`n    in your browser, save it as $rFile, and run this again.")
+    }
+}
+
 # The tools first on PATH for the rest of this script (the app does the same for itself)
-$dirs = @('llvm-mingw\bin', 'llvm-mingw\x86_64-w64-mingw32\bin', 'w64devkit\bin', 'cmake\bin', 'ninja', 'mingit\cmd', 'node') |
+$dirs = @('llvm-mingw\bin', 'llvm-mingw\x86_64-w64-mingw32\bin', 'w64devkit\bin', 'cmake\bin', 'ninja', 'mingit\cmd', 'node', 'cargo\bin') |
     ForEach-Object { Join-Path $Tools $_ } | Where-Object { Test-Path $_ }
 $env:Path = (($dirs + @($env:Path)) -join ';')
-foreach ($t in @('node', 'clang++', 'gdb', 'cmake', 'ninja', 'git', 'sh')) {
+foreach ($t in @('node', 'clang++', 'gdb', 'cmake', 'ninja', 'git', 'sh') + $(if ($NoRust) { @() } else { @('rustc', 'cargo') })) {
     $c = Get-Command $t -ErrorAction SilentlyContinue
     if ($c) { Write-Host ("found     {0,-8} {1}" -f $t, $c.Source) } else { Warn "$t is missing" }
 }
@@ -305,11 +359,11 @@ function MakeLink([string]$path, [string]$target, [string]$arguments, [string]$d
 # the shortcuts from before the app was renamed
 foreach ($p in $OldLinks) { if (Test-Path -LiteralPath $p) { Remove-Item -Recurse -Force -LiteralPath $p } }
 New-Item -ItemType Directory -Force -Path $StartMenu | Out-Null
-MakeLink (Join-Path $StartMenu "$AppName.lnk") $electron $appArg 'C and C++: editor, build, run, debug, tests, sandbox, guides'
+MakeLink (Join-Path $StartMenu "$AppName.lnk") $electron $appArg 'C, C++ and Rust: editor, build, run, debug, tests, sandbox, guides'
 MakeLink (Join-Path $StartMenu "Uninstall $AppName.lnk") (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $Root 'Install-Native.ps1')`" -Uninstall" 'Removes the Windows version (your notes and code stay)' $Root
 Write-Host "Start menu: $StartMenu"
 if (-not $NoDesktop) {
-    MakeLink $DesktopLink $electron $appArg 'C and C++: editor, build, run, debug, tests, sandbox, guides'
+    MakeLink $DesktopLink $electron $appArg 'C, C++ and Rust: editor, build, run, debug, tests, sandbox, guides'
     Write-Host "Desktop:    $DesktopLink"
 }
 

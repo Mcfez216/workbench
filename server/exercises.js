@@ -121,6 +121,66 @@ function harness(ex, upto) {
   return { src, steps: steps.map(({ i }) => i) };
 }
 
+// ------------------------------------------------------------------ Rust
+// Your file is pulled into a test program with include!, so the compiler's
+// messages point at your own file and line. Each step is a #[test] that
+// uses assert_eq!(got, expected, "what was called"). A debug build: every
+// index and integer overflow is checked, so a slip fails the step with a
+// panic that names the line, the way the sanitizers do for C.
+const pad = (n) => String(n).padStart(2, '0');
+function harnessRust(ex, upto) {
+  const steps = ex.steps.map((s, i) => ({ s, i })).filter(({ s, i }) => i <= upto && s.type !== 'reflect');
+  let src = `#![allow(dead_code, unused_imports, unused_variables, unused_mut)]\ninclude!(${JSON.stringify('../' + ex.file)});\n\n#[cfg(test)]\nmod mhde_steps {\n    use super::*;\n`;
+  for (const { s, i } of steps) src += `\n    #[test]\n    fn step_${pad(i + 1)}() {\n${s.test.split('\n').map((l) => '        ' + l).join('\n')}\n    }\n`;
+  src += '}\n';
+  return { src, steps: steps.map(({ i }) => i) };
+}
+// libtest's report: "test mhde_steps::step_01 ... ok", and for a failure,
+// the panic under "---- mhde_steps::step_01 stdout ----"
+function parseRunRust(out, steps) {
+  const res = new Map(steps.map((s) => [s, { step: s, passed: false, ran: false, fails: [] }]));
+  for (const m of out.matchAll(/^test mhde_steps::step_(\d+) \.\.\. (ok|FAILED)/gm)) {
+    const r = res.get(+m[1] - 1);
+    if (r) { r.ran = true; r.passed = m[2] === 'ok'; }
+  }
+  for (const m of out.matchAll(/^---- mhde_steps::step_(\d+) stdout ----\n([\s\S]*?)(?=^---- |^failures:|^test result)/gm)) {
+    const r = res.get(+m[1] - 1);
+    if (!r) continue;
+    const body = m[2].split('\n').filter((l) => l.trim() && !/^note: run with/.test(l));
+    const at = body.findIndex((l) => /panicked at/.test(l));
+    const msg = body.slice(at + 1);
+    const left = msg.find((l) => /^\s*left: /.test(l)), right = msg.find((l) => /^\s*right: /.test(l));
+    const head = (msg[0] || '').trim();
+    if (left && right) {
+      const call = (head.match(/^assertion `left == right` failed: (.*)$/) || [])[1] || 'the result';
+      r.fails.push({ check: call, detail: `got ${left.replace(/^\s*left: /, '')}, expected ${right.replace(/^\s*right: /, '')}` });
+    } else if (/not yet implemented|not implemented/.test(head)) {
+      r.fails.push({ check: 'not written yet', detail: 'it still says todo!(): replace that with your code' });
+    } else {
+      const call = (head.match(/^assertion failed: (.*)$/) || [])[1];
+      r.fails.push({ check: call || 'the code panicked', detail: call ? 'false' : head.replace(/^panicked: /, '') || 'see Problems' });
+    }
+  }
+  if (/\[stopped after \d+ s/.test(out)) for (const r of res.values()) if (!r.ran) r.fails.push({ check: 'it never finished', detail: 'stopped after 10 s: an endless loop?' });
+  return [...res.values()].map(({ ran, ...r }) => r);
+}
+async function checkRust(ex, upto) {
+  const dir = dirOf(ex);
+  const work = path.join(dir, '.check');
+  fs.mkdirSync(work, { recursive: true });
+  const { src, steps } = harnessRust(ex, upto);
+  const h = path.join(work, 'tests.rs');
+  fs.writeFileSync(h, src);
+  const exe = path.join(work, require('./platform').exe('tests'));
+  const ed = String(config.get().build.rustEdition || '2024');
+  const c = await execStream({ cmd: 'rustc', args: ['--edition', ed, '--color=never', '--test', '-g', '-o', exe, h], cwd: dir, title: `exercise: ${ex.title}`, source: 'rustc' });
+  const mine = (pr) => pr.filter((x) => !x.file || x.file.startsWith(dir + path.sep) && !x.file.startsWith(work));
+  // (an error only in the exercise's own tests is shown too, rather than nothing)
+  if (c.code !== 0) return { compiled: false, problems: mine(c.problems).length ? mine(c.problems) : c.problems, results: steps.map((st) => ({ step: st, passed: false, fails: [] })) };
+  const r = await execStream({ cmd: exe, args: ['--test-threads=1', '--color=never'], cwd: dir, env: { RUST_BACKTRACE: '0' }, title: `exercise: tests up to step ${upto + 1}`, timeoutMs: 10000, source: 'test' });
+  return { compiled: true, problems: mine(c.problems).concat(mine(r.problems).map((x) => ({ ...x, runtime: true }))), results: parseRunRust(r.output, steps), output: r.output.slice(-8000) };
+}
+
 function compilerFor(ex) {
   const b = config.get().build;
   return ex.lang === 'cpp' ? { cc: b.compiler || 'g++', std: b.std || 'c++20' } : { cc: b.cCompiler || 'gcc', std: b.cStd || 'c17' };
@@ -158,6 +218,7 @@ async function check({ id }) {
 }
 
 async function checkFunctions(ex, upto) {
+  if (ex.lang === 'rust') return checkRust(ex, upto);
   const dir = dirOf(ex);
   const work = path.join(dir, '.check');
   fs.mkdirSync(work, { recursive: true });
@@ -202,7 +263,7 @@ function parseRun(out, steps, code) {
   return [...res.values()].map(({ reached, ...r }) => r);
 }
 function crashReason(out) {
-  const m = out.match(/ERROR: AddressSanitizer: ([\w-]+)/) || out.match(/runtime error: (.*)/)
+  const m = out.match(/ERROR: AddressSanitizer: ([\w-]+)/) || out.match(/runtime error: (.*)/) || out.match(/panicked at [^\n]*\n([^\n]+)/)
     || out.match(/in (?:free|malloc|realloc|calloc|recallocarray)\(\): (.*)/)   // OpenBSD's malloc (MALLOC_OPTIONS=S)
     || out.match(/(Segmentation fault|Aborted|Abort trap|Illegal instruction)/);
   if (m && m[1] === 'Illegal instruction') return 'undefined behaviour (UBSan stopped it: on OpenBSD it traps instead of printing)';
@@ -215,15 +276,17 @@ async function checkProgram(ex, step) {
   fs.mkdirSync(work, { recursive: true });
   const exe = path.join(work, require('./platform').exe('program'));
   const { cc, std } = compilerFor(ex);
-  const c = await execStream({ cmd: cc, args: [`-std=${std}`, '-Wall', '-Wextra', ...SAN, '-o', exe, fileOf(ex), ...(ex.lang === 'c' ? ['-lm'] : [])], cwd: dir, title: `exercise: ${ex.title}` });
+  const c = ex.lang === 'rust'
+    ? await execStream({ cmd: 'rustc', args: ['--edition', String(config.get().build.rustEdition || '2024'), '--color=never', '-g', '-o', exe, fileOf(ex)], cwd: dir, title: `exercise: ${ex.title}`, source: 'rustc' })
+    : await execStream({ cmd: cc, args: [`-std=${std}`, '-Wall', '-Wextra', ...SAN, '-o', exe, fileOf(ex), ...(ex.lang === 'c' ? ['-lm'] : [])], cwd: dir, title: `exercise: ${ex.title}` });
   if (c.code !== 0) return { compiled: false, problems: c.problems, results: [{ step, passed: false, fails: [] }] };
   const fails = [];
   let problems = c.problems;
   for (const k of ex.steps[step].cases) {
-    const r = await execStream({ cmd: exe, args: [], cwd: dir, env: RUN_ENV, input: k.input, quiet: true, timeoutMs: 5000 });
+    const r = await execStream({ cmd: exe, args: [], cwd: dir, env: ex.lang === 'rust' ? { RUST_BACKTRACE: '0' } : RUN_ENV, input: k.input, quiet: true, timeoutMs: 5000 });
     problems = problems.concat(r.problems.map((x) => ({ ...x, runtime: true })));
     const out = r.output.replace(/^\[stopped after.*$/m, '');
-    if (r.code !== 0) fails.push({ check: `with input ${JSON.stringify(k.input)}`, detail: `the program stopped with exit code ${r.code}${/ERROR: AddressSanitizer|runtime error/.test(r.output) ? ` (${crashReason(r.output)})` : ''}` });
+    if (r.code !== 0) fails.push({ check: `with input ${JSON.stringify(k.input)}`, detail: `the program stopped with exit code ${r.code}${/ERROR: AddressSanitizer|runtime error|panicked at/.test(r.output) ? ` (${crashReason(r.output)})` : ''}` });
     else if (!same(out, k.expected)) fails.push({ check: `with input ${JSON.stringify(k.input)}`, detail: `printed ${JSON.stringify(out.slice(0, 200))}, expected ${JSON.stringify(k.expected)}` });
   }
   return { compiled: true, problems, results: [{ step, passed: !fails.length, fails }] };
@@ -321,4 +384,4 @@ function init(a) {
   a.register('progress.minutes', logMinutes);
 }
 
-module.exports = { init, DATA, harness, parseRun };
+module.exports = { init, DATA, harness, parseRun, harnessRust, parseRunRust };

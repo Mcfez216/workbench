@@ -57,13 +57,18 @@ function toolsDir(env = process.env) {
 }
 function toolDirs(env = process.env) {
   const t = toolsDir(env);
-  return ['llvm-mingw\\bin', 'llvm-mingw\\x86_64-w64-mingw32\\bin', 'w64devkit\\bin', 'cmake\\bin', 'ninja', 'mingit\\cmd', 'mingit\\usr\\bin', 'node']
+  return ['llvm-mingw\\bin', 'llvm-mingw\\x86_64-w64-mingw32\\bin', 'w64devkit\\bin', 'cmake\\bin', 'ninja', 'mingit\\cmd', 'mingit\\usr\\bin', 'node', 'cargo\\bin']
     .map((d) => path.join(t, ...d.split('\\')));
 }
 // Called once at start-up on Windows: the toolchain goes first on PATH
 function setupPath(env = process.env) {
   if (!WIN) return [];
   const have = toolDirs(env).filter((d) => fs.existsSync(d));
+  // Rust lives in the tools folder too: rustup's proxies (rustc.exe...) find
+  // their toolchains through these two
+  const t = toolsDir(env);
+  if (!env.RUSTUP_HOME && fs.existsSync(path.join(t, 'rustup'))) env.RUSTUP_HOME = path.join(t, 'rustup');
+  if (!env.CARGO_HOME && fs.existsSync(path.join(t, 'cargo'))) env.CARGO_HOME = path.join(t, 'cargo');
   const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
   const now = (env[key] || '').split(';');
   env[key] = [...have.filter((d) => !now.includes(d)), ...now].filter(Boolean).join(';');

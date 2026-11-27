@@ -66,15 +66,19 @@ function runCase(exe, input, timeLimitMs) {
 
 async function judge({ file, cases, timeLimitMs }) {
   const cfg = config.get();
-  if (!file || !/\.(cpp|cc|cxx|c)$/.test(file)) throw new Error('Open the .c or .cpp file you want to judge');
-  const tc = toolchain(/\.c$/.test(file) ? 'c' : 'cpp');
+  if (!file || !/\.(cpp|cc|cxx|c|rs)$/.test(file)) throw new Error('Open the .c, .cpp or .rs file you want to judge');
+  const rust = /\.rs$/.test(file);
+  const tc = rust ? null : toolchain(/\.c$/.test(file) ? 'c' : 'cpp');
   if (cases) saveCases({ file, cases, timeLimitMs });
   const tl = Math.max(100, Math.min(Number(timeLimitMs) || cfg.judge.timeLimitMs || 2000, 60000));
   const list = cases || getCases({ file }).cases;
   const exe = require('./platform').exe(config.dataPath('cp-bin', path.basename(file).replace(/\.\w+$/, '')));
   const flags = cfg.judge.flags && cfg.judge.flags.length ? cfg.judge.flags : ['-O2', '-Wall'];
-  const c = await execStream({ cmd: tc.cc, args: [`-std=${tc.std}`, ...flags, '-o', exe, file, ...(tc.lang === 'c' ? ['-lm'] : [])],
-    cwd: path.dirname(file), title: `judge: compile ${path.basename(file)}` });
+  // Rust: an optimised build, like the judges use (overflow checks off in -O)
+  const c = rust
+    ? await execStream({ cmd: 'rustc', args: ['--edition', String(cfg.build.rustEdition || '2024'), '--color=never', '-O', '-o', exe, file], cwd: path.dirname(file), title: `judge: rustc -O ${path.basename(file)}`, source: 'rustc' })
+    : await execStream({ cmd: tc.cc, args: [`-std=${tc.std}`, ...flags, '-o', exe, file, ...(tc.lang === 'c' ? ['-lm'] : [])],
+      cwd: path.dirname(file), title: `judge: compile ${path.basename(file)}` });
   if (c.code !== 0) return { compiled: false, problems: c.problems, results: [] };
   const results = [];
   for (const k of list) {
@@ -93,9 +97,9 @@ async function judge({ file, cases, timeLimitMs }) {
 // A new problem: a copy of the vault's template.cpp (or template.c) to start from.
 function newProblem({ name, lang }) {
   const cfg = config.get();
-  const l = lang || (/\.c$/.test(String(name || '')) ? 'c' : cfg.language === 'c' ? 'c' : 'cpp');
-  const ext = l === 'c' ? 'c' : 'cpp';
-  const safe = String(name || '').trim().replace(/\.(cpp|c)$/, '').replace(/[^\w.-]+/g, '_');
+  const l = lang || (/\.c$/.test(String(name || '')) ? 'c' : /\.rs$/.test(String(name || '')) ? 'rust' : ['c', 'rust'].includes(cfg.language) ? cfg.language : 'cpp');
+  const ext = l === 'c' ? 'c' : l === 'rust' ? 'rs' : 'cpp';
+  const safe = String(name || '').trim().replace(/\.(cpp|c|rs)$/, '').replace(/[^\w.-]+/g, '_');
   if (!safe) throw new Error('Give the problem a name, for example cf-1850A');
   const ws = config.expand(cfg.workspace);
   const dir = path.join(ws, 'cp', 'problems');
@@ -105,9 +109,29 @@ function newProblem({ name, lang }) {
   for (const v of cfg.vaults || []) sources.push(path.join(config.expand(v.path), '_code', 'cp', `template.${ext}`));
   const tpl = sources.find((s) => fs.existsSync(s));
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(file, tpl ? fs.readFileSync(tpl, 'utf8') : ext === 'c' ? FALLBACK_C : FALLBACK);
+  fs.writeFileSync(file, tpl ? fs.readFileSync(tpl, 'utf8') : ext === 'c' ? FALLBACK_C : ext === 'rs' ? FALLBACK_RS : FALLBACK);
   return { file, from: tpl || null };
 }
+// Rust: read all of stdin once, take the numbers as you need them
+const FALLBACK_RS = `use std::io::{self, BufWriter, Read, Write};
+
+fn solve(input: &mut std::str::SplitAsciiWhitespace, out: &mut impl Write) {
+    let n: i64 = input.next().unwrap().parse().unwrap();
+    writeln!(out, "{}", n).unwrap();
+}
+
+fn main() {
+    let mut text = String::new();
+    io::stdin().read_to_string(&mut text).unwrap();
+    let mut input = text.split_ascii_whitespace();
+    let out = &mut BufWriter::new(io::stdout().lock());
+    let test_cases = 1;
+    // let test_cases: usize = input.next().unwrap().parse().unwrap();
+    for _ in 0..test_cases {
+        solve(&mut input, out);
+    }
+}
+`;
 const FALLBACK = `#include <bits/stdc++.h>
 using namespace std;
 

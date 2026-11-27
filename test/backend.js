@@ -523,15 +523,110 @@ async function test(name, fn) {
     await assert.rejects(call('guides.read', { file: path.join(PROJ, 'CMakeLists.txt') }), /outside your vaults/);
   });
 
+  await test('import std; (C++23): the std module is built once and kept; a header that imports it works; g++ too old falls back to clang++', async () => {
+    const libcxx = require('child_process').spawnSync('clang++', ['-stdlib=libc++', '-print-file-name=libc++.modules.json'], { encoding: 'utf8' }).stdout.trim();
+    if (!libcxx.startsWith('/') || !fs.existsSync(libcxx)) { console.log('        (skipped: no libc++ module files here; apt install libc++-dev)'); return; }
+    const dir = fs.mkdtempSync(path.join(HOME, 'ppp-'));
+    const hello = path.join(dir, 'hello.cpp');
+    fs.writeFileSync(hello, 'import std;\n\nint main()\n{\n    std::cout << "Hello world!\\n";\n    return 0;\n}\n');
+    fs.writeFileSync(path.join(dir, 'PPP_support.h'), '// like Stroustrup\'s PPP_support.h: it imports std itself\nimport std;\ninline int twice(int x) { return 2 * x; }\n');
+    const drill = path.join(dir, 'drill.cpp');
+    fs.writeFileSync(drill, '#include "PPP_support.h"\n\nint main()\n{\n    std::vector<int> v{1, 2, 3};\n    std::println("{} {}", v.size(), twice(21));\n}\n');
+    const t0 = Date.now();
+    const a = await call('build.build', { file: hello });
+    assert.strictEqual(a.code, 0, JSON.stringify(a.problems));
+    const first = Date.now() - t0;
+    assert.match(a.note || '', /C\+\+23/);
+    assert.match(a.clangd.command.join(' '), /-fmodule-file=std=/);
+    assert.strictEqual(require('child_process').execFileSync(a.exe, { encoding: 'utf8' }), 'Hello world!\n');
+    const t1 = Date.now();
+    const b = await call('build.build', { file: hello });
+    assert.strictEqual(b.code, 0);
+    assert.ok(Date.now() - t1 < first, `the module is kept: ${Date.now() - t1} ms the second time, ${first} ms the first`);
+    const d = await call('build.build', { file: drill });
+    assert.strictEqual(d.code, 0, JSON.stringify(d.problems));
+    assert.strictEqual(require('child_process').execFileSync(d.exe, { encoding: 'utf8' }), '3 42\n');
+    // a commented-out import doesn't count; a plain #include program is untouched
+    fs.writeFileSync(hello, '// import std;\n#include <iostream>\nint main() { std::cout << "plain\\n"; }\n');
+    const p = await call('build.build', { file: hello });
+    assert.strictEqual(p.code, 0);
+    assert.strictEqual(p.clangd, undefined);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  await test('rust: a lone file, a Cargo project with tests, clippy, rustfmt, rustc --explain, the sandbox, the judge, new projects', async () => {
+    const work = fs.mkdtempSync(path.join(HOME, 'rust-'));
+    // a lone file: rustc's error lands on the line, with its notes
+    const bad = path.join(work, 'bad.rs');
+    fs.writeFileSync(bad, 'fn main() {\n    let s = String::from("hi");\n    let t = s;\n    println!("{} {}", s, t);\n}\n');
+    const b1 = await call('build.build', { file: bad });
+    assert.notStrictEqual(b1.code, 0);
+    const e = b1.problems.find((p) => p.severity === 'error');
+    assert.deepStrictEqual([path.basename(e.file), e.line, e.code, e.message], ['bad.rs', 4, 'E0382', 'borrow of moved value: `s`']);
+    assert.ok(e.notes.some((n) => n.line === 3 && /value moved here/.test(n.message)), JSON.stringify(e.notes));
+    const ex = await call('rust.explain', { code: 'E0382' });
+    assert.match(ex.text, /moved/);
+    // a new Cargo project (a library with tests), as File -> New project makes it
+    const proj = await call('project.create', { dir: work, name: 'fleet', lang: 'rust', kind: 'library', git: false });
+    assert.deepStrictEqual(fs.readdirSync(proj.root).sort(), ['.gitignore', 'Cargo.toml', 'README.md', 'rustfmt.toml', 'src']);
+    assert.match(fs.readFileSync(path.join(proj.root, 'Cargo.toml'), 'utf8'), /name = "fleet"\nversion = "0.1.0"\nedition = "2024"/);
+    assert.strictEqual(path.basename(proj.main), 'lib.rs');
+    const root = await call('cmake.root', { file: proj.main });
+    assert.deepStrictEqual([root.root, root.kind, root.configured], [proj.root, 'cargo', true]);
+    const b2 = await call('build.build', { file: proj.main });
+    assert.strictEqual(b2.code, 0, JSON.stringify(b2.problems));
+    const tl = await call('ctest.list', { root: proj.root });
+    assert.deepStrictEqual(tl.tests.map((t) => t.name).sort(), ['tests::adds_negative_numbers', 'tests::adds_two_numbers']);
+    // break one test: the Tests sidebar's results and the panic's line
+    fs.writeFileSync(proj.main, fs.readFileSync(proj.main, 'utf8').replace('assert_eq!(add(-2, -3), -5);', 'assert_eq!(add(-2, -3), -6);'));
+    const tr = await call('ctest.run', { root: proj.root });
+    assert.deepStrictEqual(tr.results.map((r) => `${r.name}=${r.status}`).sort(), ['tests::adds_negative_numbers=failed', 'tests::adds_two_numbers=passed']);
+    const fail = tr.problems.find((p) => p.source === 'panic');
+    assert.strictEqual(path.basename(fail.file), 'lib.rs');
+    assert.match(fail.message, /left: -5 \/ right: -6/);
+    const loc = await call('ctest.locate', { root: proj.root, name: 'tests::adds_negative_numbers' });
+    assert.match(fs.readFileSync(loc.file, 'utf8').split('\n')[loc.line - 1], /fn adds_negative_numbers\(\)/);
+    const one = await call('ctest.run', { root: proj.root, indexes: [tl.tests.find((t) => t.name === 'tests::adds_two_numbers').index] });
+    assert.deepStrictEqual(one.results.map((r) => r.status), ['passed']);
+    // Ctrl+F9: the program in a terminal
+    const ran = await call('cmake.run', { file: path.join(proj.root, 'src', 'main.rs') });
+    assert.ok(ran.ok && ran.terminal, JSON.stringify(ran));
+    await until(() => false, 1500);
+    // clippy and rustfmt
+    const cl = await call('analyze.tidy', { file: bad });
+    assert.ok(cl.problems.some((p) => p.code === 'E0382'), 'clippy builds it too, so it reports the error');
+    const fm = await call('format.file', { file: bad, text: 'fn main(){let x=1;println!("{}",x);}' });
+    assert.strictEqual(fm.text, 'fn main() {\n    let x = 1;\n    println!("{}", x);\n}\n');
+    // the sandbox: a panic is a runtime problem on its line
+    const got = waitFor('build.runtime', (d) => d.problems.some((p) => /index out of bounds/.test(p.message)), 30000);
+    const sb = await call('sandbox.run', { source: 'fn main() {\n    let v = vec![1, 2, 3];\n    let i = v.len();\n    println!("{}", v[i]);\n}\n', lang: 'rust', std: '2024' });
+    assert.ok(sb.ok);
+    const rt = (await got).problems.find((p) => /index out of bounds/.test(p.message));
+    assert.deepStrictEqual([path.basename(rt.file), rt.line, rt.runtime], ['scratch.rs', 4, true]);
+    const asm = await call('sandbox.asm', { source: '#[inline(never)]\nfn square(x: u64) -> u64 { x * x }\nfn main() { println!("{}", square(std::env::args().count() as u64)); }\n', lang: 'rust', opt: '-O2' });
+    assert.ok(asm.ok && asm.lines.some((l) => l.label && /square/.test(l.text)), JSON.stringify(asm.lines.slice(0, 5)));
+    assert.ok(!asm.lines.some((l) => l.label && /lang_start/.test(l.text)), 'not the runtime\'s start-up code');
+    // the judge
+    const sol = path.join(work, 'sum.rs');
+    fs.writeFileSync(sol, 'use std::io::Read;\nfn main() { let mut s = String::new(); std::io::stdin().read_to_string(&mut s).unwrap(); let t: i64 = s.split_whitespace().map(|w| w.parse::<i64>().unwrap()).sum(); println!("{t}"); }\n');
+    const j = await call('cp.judge', { file: sol, cases: [{ input: '1 2 3\n', expected: '6' }, { input: '5\n', expected: '6' }] });
+    assert.deepStrictEqual(j.results.map((r) => r.verdict), ['AC', 'WA']);
+    // the tools list knows Rust, and the installers' hint is rustup's
+    const tools = await call('build.tools');
+    assert.strictEqual(tools.rustc, true);
+    assert.strictEqual(tools.cargo, true);
+    fs.rmSync(work, { recursive: true, force: true });
+  });
+
   await test('course vaults: copied to ~/Notes on the first start; new notes later, your edits never replaced', async () => {
     const { execFileSync } = require('child_process');
     const home = fs.mkdtempSync(path.join(HOME, 'first-'));
     const run = (code) => JSON.parse(execFileSync(process.execPath, ['-e', code], { cwd: path.join(__dirname, '..'), env: { ...process.env, HOME: home, XDG_CONFIG_HOME: '', XDG_DATA_HOME: '' }, encoding: 'utf8' }));
     const first = run(`const c = require('./server/config').load(); console.log(JSON.stringify(c.vaults))`);
-    assert.deepStrictEqual(first, ['C-Path', 'CCNA-Path', 'CPP-Path'].map((name) => ({ path: path.join(home, 'Notes', name), name })));
+    assert.deepStrictEqual(first, [{ path: path.join(home, 'Notes', 'C-Path'), name: 'C-Path' }, { path: path.join(home, 'Notes', 'CPP-Path'), name: 'CPP-Path' }, { path: path.join(home, 'Notes', 'Rust-Path'), name: 'Rust-Path' }]);
     const cpp = path.join(home, 'Notes', 'CPP-Path');
-    assert.ok(fs.existsSync(path.join(cpp, 'CPP Start Here.md')) && fs.existsSync(path.join(home, 'Notes', 'C-Path', 'C Start Here.md')) && fs.existsSync(path.join(home, 'Notes', 'CCNA-Path', 'CCNA Start Here.md')));
-    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(home, '.config', 'cpp-path-workbench', 'config.json'), 'utf8')).vaults.map((v) => v.name), ['C-Path', 'CCNA-Path', 'CPP-Path'], 'remembered');
+    assert.ok(fs.existsSync(path.join(cpp, 'CPP Start Here.md')) && fs.existsSync(path.join(home, 'Notes', 'C-Path', 'C Start Here.md')));
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(home, '.config', 'cpp-path-workbench', 'config.json'), 'utf8')).vaults.map((v) => v.name), ['C-Path', 'CPP-Path', 'Rust-Path'], 'remembered');
     // your changes: an edited note, a daily note, a deleted note
     const edited = path.join(cpp, 'CPP Done Log.md');
     fs.writeFileSync(edited, '# My log\n');
@@ -849,6 +944,9 @@ async function test(name, fn) {
       assert.deepStrictEqual([m[4], m[5]], [m[1], m[2]], 'the checksum is looked up for the same release that is downloaded');
     }
     assert.match(ps, /Get-FileHash -Algorithm SHA256[\s\S]*isn't the file its project published/);
+    // Rust: rustup-init from rust-lang.org over https, checked against its .sha256, and optional
+    assert.match(ps, /\$rustupFrom = 'https:\/\/static\.rust-lang\.org\/rustup\/dist\/x86_64-pc-windows-gnu\/rustup-init\.exe'/);
+    assert.match(ps, /"\$rustupFrom\.sha256"[\s\S]*isn't the file rust-lang\.org published[\s\S]*Rust didn't install/);
     assert.doesNotMatch(ps, /Invoke-Expression|\biex\b|-NoProxy \$true|\$a\.NoProxy/);
     assert.match(ps, /\$env:NODE_EXTRA_CA_CERTS = \$CertFile/);
     fs.rmSync(world, { recursive: true, force: true });

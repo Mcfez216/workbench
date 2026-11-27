@@ -30,7 +30,7 @@ proxy_setup || { echo "The network isn't usable yet: fix what it says above, the
 
 if [ $QUICK = 0 ]; then
 	say "Ubuntu packages and Node.js (sudo asks for your Linux password)"
-	bash scripts/setup-ubuntu.sh --with-node
+	bash scripts/setup-ubuntu.sh --with-node --with-rust
 	hash -r
 fi
 

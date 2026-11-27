@@ -13,6 +13,12 @@
 //   clang-tidy      same shape as the compiler, with [check-name] at the end
 //   cppcheck        our --template gives the compiler's shape too
 //   Open Watcom     hello.cpp(12): Error! E029: col(5) symbol 'x' has not been declared
+//   rustc / cargo   error[E0382]: borrow of moved value: `s`
+//                     --> src/main.rs:5:20       (the location is on the next lines)
+//                     = help: consider cloning the value
+//   Rust panics     thread 'main' panicked at src/main.rs:4:5:
+//                   index out of bounds: the len is 3 but the index is 7
+//                   (a failing #[test] panics the same way)
 
 const path = require('path');
 
@@ -33,6 +39,16 @@ const SAN_STAGE = { 'freed by thread': 'freed here', 'previously allocated by th
 // g++'s template backtrace: the line in YOUR code that started it
 const REQUIRED = /^(.+?):(\d+):(\d+):\s+required (?:from|by) (here|.*)$/;
 const SYSTEM = (f) => f.startsWith('/usr/') || /\/_deps\//.test(f);
+const RUST_DIAG = /^(error|warning)(?:\[([EW]\d{4})\])?: (.*)$/;
+const RUST_AT = /^\s*--> (.+?):(\d+):(\d+)\s*$/;
+const RUST_NOTE = /^\s*= (note|help): (.*)$/;
+const RUST_PANIC = /^thread '(.*?)'(?: \(\d+\))? panicked at (.+?):(\d+):(\d+):\s*$/;
+const RUST_SRC = /^\s*(\d+)\s+\|/;                       // " 3 |     let t = s;"
+const RUST_LABEL = /^\s*\|[\s|]*[-^]+\s+(\S.*)$/;           // "  |         - value moved here"
+// Summary lines that look like diagnostics but point at nothing
+const RUST_SUMMARY = /^(aborting due to|could not compile|\d+ warnings? emitted|build failed|unused manifest key|Some errors have detailed explanations|For more information about this error|the lint level is defined)/;
+// A panic inside the standard library (or a dependency) isn't your line
+const RUST_SYSTEM = (f) => /^\/rustc\/|\/\.rustup\/|\/\.cargo\/registry\//.test(f);
 
 // Frames in the C++ library, the sanitizer runtime or a fetched dependency
 // aren't where your bug is; the first frame in your own code is.
@@ -70,9 +86,39 @@ class OutputParser {
     if (dm) { this.cwdStack.push(dm[1]); return; }
     if (/make(?:\[\d+\])?: Leaving directory/.test(line) && this.cwdStack.length > 1) { this.cwdStack.pop(); return; }
 
-    // continuation lines: CMake's indented explanation, Catch2's expression
+    // continuation lines: CMake's indented explanation, Catch2's expression,
+    // rustc's location and help lines, a panic's message
     if (this.pending) {
       const p = this.pending;
+      if (p.kind === 'rust') {
+        const at = line.match(RUST_AT);
+        if (at && !p.problem) {
+          p.problem = this.push({ file: this.resolve(at[1]), line: +at[2], col: +at[3], severity: p.severity, message: p.message,
+            source: p.code ? `rustc ${p.code}` : this.source || 'rustc', code: p.code || undefined, notes: [] });
+          return;
+        }
+        const nt = line.match(RUST_NOTE) || line.match(/^(help): (.*)$/);
+        if (nt && p.problem) { p.problem.notes.push({ file: '', line: 0, col: 0, severity: 'info', message: `${nt[1]}: ${nt[2]}` }); return; }
+        // the source lines rustc quotes, and its labels under them:
+        // "value moved here" on line 3 becomes a note pointing at line 3
+        const src = line.match(RUST_SRC);
+        if (src && p.problem) { p.srcLine = +src[1]; return; }
+        const lb = line.match(RUST_LABEL);
+        if (lb && p.problem && p.srcLine && !/^help: /.test(lb[1])) {
+          if (!(p.srcLine === p.problem.line && lb[1] === p.problem.message)) p.problem.notes.push({ file: p.problem.file, line: p.srcLine, col: 1, severity: 'info', message: lb[1] });
+          return;
+        }
+        if (!RUST_DIAG.test(line) && !RUST_PANIC.test(line) && !/^\s*(Compiling|Finished|Running|Checking|Building|warning: build failed|error: could not compile)/.test(line)) return;
+        this.pending = null;
+      } else if (p.kind === 'panic') {
+        if (line.trim() && !/^note: run with `RUST_BACKTRACE/.test(line) && !/^stack backtrace:/.test(line) && p.extra < 3) {
+          p.problem.message += (p.extra ? ' / ' : ': ') + line.trim();
+          p.extra++;
+          return;
+        }
+        this.pending = null;
+        if (!line.trim() || /^note: run with/.test(line)) return;
+      }
       if (p.kind === 'cmake') {
         if (/^\s{2,}\S/.test(line) && p.extra < 3) { p.problem.message += (p.extra ? ' ' : ': ') + line.trim(); p.extra++; return; }
         if (!line.trim() && p.extra === 0) return;
@@ -115,7 +161,21 @@ class OutputParser {
       if (/^SUMMARY: /.test(line) || /^==\d+==ABORTING/.test(line)) { if (/ABORTING/.test(line)) this.san = null; return; }
     }
 
-    let m = line.match(UBSAN);
+    let m = line.match(RUST_PANIC);
+    if (m) {
+      const file = this.resolve(m[2]);
+      const p = this.push({ file: RUST_SYSTEM(file) ? '' : file, line: +m[3], col: +m[4], severity: 'error',
+        message: m[1] === 'main' || m[1] === '<unnamed>' ? 'panicked' : `test ${m[1]} panicked`, source: 'panic', runtime: true });
+      this.pending = { kind: 'panic', problem: p, extra: 0 };
+      return;
+    }
+    m = line.match(RUST_DIAG);
+    if (m && !RUST_SUMMARY.test(m[3])) {
+      this.pending = { kind: 'rust', severity: m[1] === 'error' ? 'error' : 'warning', code: m[2], message: m[3], problem: null };
+      return;
+    }
+    if (m) return;
+    m = line.match(UBSAN);
     if (m) {
       this.push({ file: this.resolve(m[1]), line: +m[2], col: +m[3], severity: 'error', message: `UBSan: ${m[4]}`, source: 'ubsan', runtime: true });
       return;

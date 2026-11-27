@@ -106,7 +106,7 @@ const MENUS = [
     { cmd: 'help.cppref' }, { cmd: 'help.man' },
   ] },
   { label: 'Options', hot: 'O', items: [
-    { label: 'Language', submenu: [{ cmd: 'lang.set', args: ['c'], label: 'C' }, { cmd: 'lang.set', args: ['cpp'], label: 'C++' }] },
+    { label: 'Language', submenu: [{ cmd: 'lang.set', args: ['c'], label: 'C' }, { cmd: 'lang.set', args: ['cpp'], label: 'C++' }, { cmd: 'lang.set', args: ['rust'], label: 'Rust' }] },
     { label: 'Theme', submenu: Object.entries(THEMES).map(([k, t]) => ({ cmd: 'theme.set', args: [k], label: t.label })) },
     { label: 'Retro colours', submenu: Object.entries(PALETTES).map(([k, label]) => ({ cmd: 'look.palette', args: [k], label })) },
     { label: 'Retro font', submenu: [{ cmd: 'look.font', args: ['vga'], label: 'VGA pixel font (16 / 32 px)' }, { cmd: 'look.font', args: ['modern'], label: 'Smooth modern font (any size)' }] },
@@ -167,12 +167,12 @@ function showLanguage() {
 
 function appCommands() {
   command('lang.set', 'Language', [], async (l) => {
-    if (l !== 'c' && l !== 'cpp') return;
+    if (!['c', 'cpp', 'rust'].includes(l)) return;
     if (l === language()) return;
     setLanguage(l);                 // the switch lights up and the status line says it: no toast needed
     await saveCfg({ language: l });
   }, { needsArgs: true });
-  command('lang.toggle', 'Switch between C and C++', ['Ctrl+Shift+J'], () => runCommand('lang.set', otherLanguage()));
+  command('lang.toggle', 'Next language (C, C++, Rust)', ['Ctrl+Shift+J'], () => runCommand('lang.set', otherLanguage()));
   command('look.palette', 'Retro colours', [], async (p) => { cfg = await saveCfg({ look: { ...cfg.look, palette: p } }); setTheme(themeName()); toast(`Retro colours: ${PALETTES[p]}`, 'ok', 2000); }, { needsArgs: true });
   command('look.font', 'Retro font', [], async (f) => {
     cfg = await saveCfg({ look: { ...cfg.look, retroFont: f } });

@@ -48,7 +48,7 @@ function render() {
     for (const it of items.filter((i) => i.track === tr)) {
       const b = h('button', { type: 'button', class: 'tree-row ex-row' + (it.done ? ' done' : ''), title: `${it.title}: ${it.done ? 'done' : `step ${Math.min(it.step + 1, it.steps)} of ${it.steps}`}` },
         h('span', { class: 'ex-status', 'aria-hidden': 'true' }, STATUS(it)), h('span', { class: 'name' }, it.title),
-        h('span', { class: 'ex-meta' }, it.kind === 'ctf' ? 'CTF' : it.lang === 'c' ? 'C' : 'C++'));
+        h('span', { class: 'ex-meta' }, it.kind === 'ctf' ? 'CTF' : ({ c: 'C', cpp: 'C++', rust: 'Rust' }[it.lang] || 'C++')));
       b.addEventListener('click', () => openExercise(it.id));
       listEl.append(b);
     }
@@ -103,7 +103,7 @@ function draw(t, result) {
   clear(page);
   const cur = pr.done ? ex.steps.length : pr.step;
   page.append(h('div', { class: 'ex-head' },
-    h('div', { class: 'ex-tags' }, h('span', { class: 'tag' }, ex.track), h('span', { class: 'tag' }, ex.topic), h('span', { class: 'tag' }, ex.kind === 'ctf' ? 'Capture the flag' : ex.lang === 'c' ? 'C' : 'C++')),
+    h('div', { class: 'ex-tags' }, h('span', { class: 'tag' }, ex.track), h('span', { class: 'tag' }, ex.topic), h('span', { class: 'tag' }, ex.kind === 'ctf' ? 'Capture the flag' : ({ c: 'C', cpp: 'C++', rust: 'Rust' }[ex.lang] || 'C++'))),
     h('h1', {}, ex.title), md(ex.intro),
     h('p', { class: 'muted small' }, pr.done ? 'Done. Everything below stays open to look back at.' : `Step ${cur + 1} of ${ex.steps.length}.${ex.kind === 'ctf' ? '' : ' F7 checks your code (or the button). Your file: ' + ex.file}`)));
   const list = h('ol', { class: 'ex-steps' });

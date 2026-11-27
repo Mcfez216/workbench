@@ -297,14 +297,14 @@ function MakeLink([string]$path, [string]$target, [string]$arguments, [string]$d
 # the shortcuts from before the app was renamed
 foreach ($p in $OldLinks) { if (Test-Path -LiteralPath $p) { Remove-Item -Recurse -Force -LiteralPath $p } }
 New-Item -ItemType Directory -Force -Path $StartMenu | Out-Null
-MakeLink (Join-Path $StartMenu "$AppName.lnk") $wscript "`"$vbs`"" 'C and C++: editor, build, run, debug, tests, sandbox, guides'
+MakeLink (Join-Path $StartMenu "$AppName.lnk") $wscript "`"$vbs`"" 'C, C++ and Rust: editor, build, run, debug, tests, sandbox, guides'
 # the app opens in its own window; a browser shortcut only if you asked for one (-Mode browser)
 $browserLink = Join-Path $StartMenu "$AppName (in your browser).lnk"
 if (Test-Path $browserLink) { Remove-Item -Force $browserLink }
 MakeLink (Join-Path $StartMenu "Uninstall $AppName shortcuts.lnk") (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $Launcher 'Install.ps1')`" -Uninstall" 'Removes the shortcuts (the app stays in WSL)'
 Write-Host "Start menu: $StartMenu"
 if (-not $NoDesktop) {
-    MakeLink $DesktopLink $wscript "`"$vbs`"" 'C and C++: editor, build, run, debug, tests, sandbox, guides'
+    MakeLink $DesktopLink $wscript "`"$vbs`"" 'C, C++ and Rust: editor, build, run, debug, tests, sandbox, guides'
     Write-Host "Desktop:    $DesktopLink"
 }
 
