@@ -1,0 +1,15 @@
+# The Rust-Path projects, R01 to R05: one Cargo workspace.
+#
+#   projects/   your copy: starter code that compiles, with todo!() where the
+#               work goes. Its tests fail until you write it.
+#   solutions/  a finished version of each, run against the same tests.
+#
+# In MHDE: the Tests sidebar lists the projects; ▶ runs your project's tests
+# and shows how many pass. From a terminal:
+#
+#   cargo test -p r01_word_frequency            your R01
+#   cargo test                                  the solutions (all pass)
+[workspace]
+resolver = "3"
+members = ["projects/*", "solutions/*"]
+default-members = ["solutions/*"]

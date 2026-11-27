@@ -1,0 +1,12 @@
+[package]
+name = "r01_word_frequency"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+# only the tests in tests/: no empty test runs for the library itself
+test = false
+doctest = false
+
+[dependencies]

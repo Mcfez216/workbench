@@ -231,7 +231,9 @@ function appCommands() {
       if (!vault) return;
     }
     // ~/cpp-path as the vault says; or next to this app if you keep things together (~/CPP/cpp-path)
-    const near = info.appParent && info.appParent !== info.home ? `${info.appParent.replace(info.home, '~')}/cpp-path` : '~/cpp-path';
+    // Rust-Path's code goes to its own folder: ~/rust-path
+    const dirName = /rust/i.test(vault.name || vault.path) ? 'rust-path' : 'cpp-path';
+    const near = info.appParent && info.appParent !== info.home ? `${info.appParent.replace(info.home, '~')}/${dirName}` : `~/${dirName}`;
     const to = await prompt("Copy the vault's code", 'Copy _code to', near, { hint: 'Files already there are kept, never overwritten. This becomes your workspace.' });
     if (!to) return;
     const dest = to.replace(/^~(?=\/|$)/, info.home);
@@ -240,7 +242,7 @@ function appCommands() {
     const { setRoot } = await import('./files.js');
     setRoot(next.workspace);
     sidebar.show('files');
-    toast(`Copied ${r.copied} file${r.copied === 1 ? '' : 's'} to ${to}${r.kept ? ` (kept ${r.kept} you already had)` : ''}${r.gitignore ? ', with a .gitignore for build/ and .cache/' : ''}. Next: Alt+F9 to configure, F9 to build.`, 'ok', 9000);
+    toast(`Copied ${r.copied} file${r.copied === 1 ? '' : 's'} to ${to}${r.kept ? ` (kept ${r.kept} you already had)` : ''}${r.gitignore ? ', with a .gitignore for build/ and .cache/' : ''}. ${dirName === 'rust-path' ? 'Next: the Tests sidebar lists R01 to R05; ▶ runs your project\'s tests.' : 'Next: Alt+F9 to configure, F9 to build.'}`, 'ok', 9000);
   });
   command('app.quit', 'Quit', ['Ctrl+Q'], () => window.close());
 }

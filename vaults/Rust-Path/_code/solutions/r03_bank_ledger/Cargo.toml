@@ -1,0 +1,18 @@
+# The finished version, tested with the same tests as your project
+[package]
+name = "r03_bank_ledger_solution"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "r03_bank_ledger"
+path = "src/lib.rs"
+test = false
+doctest = false
+
+[[test]]
+name = "r03_bank_ledger"
+path = "../../projects/r03_bank_ledger/tests/r03_bank_ledger.rs"
+
+[dependencies]

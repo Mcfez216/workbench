@@ -585,6 +585,22 @@ export function testCaseAt(view) {
   return null;
 }
 
+// The Rust #[test] function the cursor is in: the nearest `fn name(` above
+// it with #[test] just before it
+export function rustTestAt(view) {
+  const doc = view.state.doc;
+  for (let n = doc.lineAt(view.state.selection.main.head).number; n >= 1; n--) {
+    const m = doc.line(n).text.match(/^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)/);
+    if (!m) continue;
+    for (let k = n - 1; k >= Math.max(1, n - 4); k--) {
+      const t = doc.line(k).text.trim();
+      if (/^#\[(tokio::)?test\]/.test(t)) return m[1];
+      if (t && !t.startsWith('#[') && !t.startsWith('//')) break;
+    }
+  }
+  return null;
+}
+
 // The sandbox shares the keymap switcher
 let sandboxView = null;
 export function registerSandboxView(v) { sandboxView = v; }

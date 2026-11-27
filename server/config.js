@@ -49,6 +49,8 @@ function copyMissing(from, to) {
   let copied = 0, kept = 0;
   fs.mkdirSync(to, { recursive: true });
   for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+    // build output (a Cargo target/, CMake's build/) isn't part of a vault
+    if (e.isDirectory() && ['target', 'build', '.git', 'node_modules'].includes(e.name)) continue;
     const a = path.join(from, e.name), b = path.join(to, e.name);
     if (e.isDirectory()) { const r = copyMissing(a, b); copied += r.copied; kept += r.kept; }
     else if (e.isFile()) {

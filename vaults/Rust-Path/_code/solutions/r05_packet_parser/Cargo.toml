@@ -1,0 +1,18 @@
+# The finished version, tested with the same tests as your project
+[package]
+name = "r05_packet_parser_solution"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "r05_packet_parser"
+path = "src/lib.rs"
+test = false
+doctest = false
+
+[[test]]
+name = "r05_packet_parser"
+path = "../../projects/r05_packet_parser/tests/r05_packet_parser.rs"
+
+[dependencies]

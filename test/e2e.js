@@ -468,6 +468,30 @@ async function main() {
       await page.waitForFunction(() => /C\+\+: /.test(document.querySelector('.statusline').innerText));
     });
 
+    await step('Rust projects: the Tests sidebar lists R01-R05, ▶ runs your stub, Shift+F7 runs the #[test] under the cursor', async () => {
+      fs.cpSync(path.join(__dirname, '..', 'vaults', 'Rust-Path', '_code'), path.join(PROJ, 'rust-path'), { recursive: true });
+      await page.locator('.side-head button', { hasText: 'Files' }).click();
+      await page.locator('.side-view:not([hidden]) .side-title button[title="Refresh"]').first().click().catch(() => {});
+      await openTree('rust-path', 'projects', 'r01_word_frequency', 'src', 'lib.rs');
+      await page.locator('.side-head button', { hasText: 'Tests' }).click();
+      await page.waitForFunction(() => document.querySelectorAll('.tests-view .test-proj').length === 5, null, { timeout: 30000 });
+      const r01 = page.locator('.test-proj', { hasText: /R01 word frequency/i });
+      await r01.locator('.row-tools button[title^="Build the stub"]').click();
+      await page.waitForFunction(() => /0\/10/.test(document.querySelector('.test-proj .test-badge')?.innerText || ''), null, { timeout: 120000 });
+      assert.match(await status(), /0\/10 test cases pass/);
+      assert.ok(await r01.locator('button[title^="Peek"]').count(), 'the solution is there to peek at');
+      await openTree('rust-path', 'projects', 'r01_word_frequency', 'tests', 'r01_word_frequency.rs');
+      // line 41, in ties_are_alphabetical (the editor only draws the lines on screen)
+      await page.locator('.tab-page.active .cm-line').first().click();
+      for (let i = 0; i < 40; i++) await page.keyboard.press('ArrowDown');
+      await page.waitForFunction(() => /\b41:\d+/.test(document.querySelector('.st-left').innerText));
+      await page.keyboard.press('Shift+F7');
+      await page.waitForFunction(() => /0\/1 test cases pass/.test(document.querySelector('.statusline').innerText), null, { timeout: 60000 });
+      await shot('18-rust-projects');
+      await page.keyboard.press('Control+W');
+      await page.keyboard.press('Control+W');
+    });
+
     await step('the palette runs anything by name; New file makes a C program; the outline lists it', async () => {
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');

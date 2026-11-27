@@ -1,0 +1,18 @@
+# The finished version, tested with the same tests as your project
+[package]
+name = "r01_word_frequency_solution"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "r01_word_frequency"
+path = "src/lib.rs"
+test = false
+doctest = false
+
+[[test]]
+name = "r01_word_frequency"
+path = "../../projects/r01_word_frequency/tests/r01_word_frequency.rs"
+
+[dependencies]

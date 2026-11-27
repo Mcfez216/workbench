@@ -351,7 +351,8 @@ function projectsFrom(m) {
 function file2dir(f) { return path.dirname(f); }
 
 async function projectsList({ root, file }) {
-  if (cargoFor({ file, root })) return { root, projects: [] };
+  const rs = cargoFor({ file, root });
+  if (rs) return require('./rust').projectsList({ root: rs });
   const t = await targets({ root, file });
   if (!t.configured) return { root: t.root, configured: false, projects: [] };
   return { root: t.root, configured: true, projects: projectsFrom(readModel(t.root)) };
@@ -361,6 +362,7 @@ async function projectsList({ root, file }) {
 function catchSpec(name) { return name.replace(/[\\,[\]*]/g, (c) => '\\' + c); }
 
 async function projectRun({ root, id, testName }) {
+  if (cargoFor({ root })) return require('./rust').projectRun({ root, id, testName });
   const m = readModel(root) || (await targets({ root }), readModel(root));
   const p = m && projectsFrom(m).find((x) => x.id === id);
   if (!p) throw new Error(`No project ${id}`);

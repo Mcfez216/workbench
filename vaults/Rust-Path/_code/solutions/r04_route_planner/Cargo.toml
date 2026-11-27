@@ -1,0 +1,18 @@
+# The finished version, tested with the same tests as your project
+[package]
+name = "r04_route_planner_solution"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "r04_route_planner"
+path = "src/lib.rs"
+test = false
+doctest = false
+
+[[test]]
+name = "r04_route_planner"
+path = "../../projects/r04_route_planner/tests/r04_route_planner.rs"
+
+[dependencies]

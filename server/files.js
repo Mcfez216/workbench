@@ -168,7 +168,7 @@ async function copyDir({ from, to }) {
   async function walk(src, dst) {
     await fsp.mkdir(dst, { recursive: true });
     for (const e of await fsp.readdir(src, { withFileTypes: true })) {
-      if (e.name === 'build' || e.name === '.git' || e.name === 'node_modules') continue;
+      if (e.name === 'build' || e.name === 'target' || e.name === '.git' || e.name === 'node_modules') continue;
       const s = path.join(src, e.name), d = path.join(dst, e.name);
       if (e.isDirectory()) await walk(s, d);
       else if (e.isFile()) {

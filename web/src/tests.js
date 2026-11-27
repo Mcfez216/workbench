@@ -8,7 +8,7 @@
 import { call, on } from './rpc.js';
 import { h, clear, toast, confirm, debounce, pathText } from './ui.js';
 import { sidebar, tabs, command, runCommand, panel, status } from './layout.js';
-import { activeEditor, openFile, goTo, testCaseAt } from './editor.js';
+import { activeEditor, openFile, goTo, testCaseAt, rustTestAt } from './editor.js';
 import { startRun, finishRun, runTarget } from './build.js';
 import { openGuide, guideNotes } from './guides.js';
 
@@ -159,7 +159,7 @@ async function testProject(p, testName) {
   if (!testName) {
     projResults[p.id] = { built: r.built !== false, summary: s, at: Date.now() };
     await call('state.set', { key: `projects.results:${root}`, value: projResults });
-    if (s && s.failed === 0 && s.total) toast(`${p.label}: every test passes. Tick it off in the CPP Done Log!`, 'ok', 8000);
+    if (s && s.failed === 0 && s.total) toast(`${p.label}: every test passes. Tick it off in the ${p.kind === 'cargo' ? 'Rust' : 'CPP'} Done Log!`, 'ok', 8000);
   }
   render();
   return r;
@@ -191,21 +191,24 @@ async function runAll() {
 async function runHere() {
   const t = activeEditor();
   if (!t) return toast('Open a test file and put the cursor in a TEST_CASE');
-  const name = testCaseAt(t.view);
-  if (!name) return toast('No TEST_CASE above the cursor');
+  const rust = /\.rs$/i.test(t.file || '');
+  const name = rust ? rustTestAt(t.view) : testCaseAt(t.view);
+  if (!name) return toast(rust ? 'No #[test] function above the cursor' : 'No TEST_CASE above the cursor');
   await refreshTests();
   // a project's own tests run against your stub, not the solution
   const p = projects.find((x) => (x.tests || []).includes(t.file) || (x.stubFiles || []).includes(t.file));
   if (p) return testProject(p, name);
-  let test = tests.find((x) => x.name === name);
+  const named = (x) => x.name === name || (rust && x.name.endsWith(`::${name}`));
+  let test = tests.find(named);
   if (!test || test.notBuilt) {
     if (tabs.list.some((x) => x.dirty && x.file)) await runCommand('file.saveAll');
     startRun('Building');
     const b = await call('build.build', { file: t.file });
     if (!finishRun(b)) return;
     await refreshTests();
-    test = tests.find((x) => x.name === name);
+    test = tests.find(named);
   }
+  if (!test && rust) return toast(`"${name}" isn't in this project's tests (cargo test lists them after a build)`, 'error', 7000);
   if (!test) return toast(`"${name}" isn't a ctest test (is the file's target registered with catch_discover_tests?)`, 'error', 7000);
   return runSome([test.index], name);
 }

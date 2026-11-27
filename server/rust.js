@@ -239,6 +239,64 @@ async function testLocate({ root, name }) {
   return null;
 }
 
+// ------------------------------------------------------------------ projects (R01..R05)
+// The Rust-Path vault's _code is a Cargo workspace: projects/<id> is yours
+// (todo!() where the work goes, so its tests fail until you write it) and
+// solutions/<id> is the finished one, run against the same tests. Plain
+// `cargo test` runs the solutions only (default-members), like ctest runs the
+// C++ ones; ▶ in the Tests sidebar runs yours.
+const PROJECT_DIR = /^r\d+_[a-z0-9_]+$/;
+function projectsHome(root) {
+  if (!root) return null;
+  let cur = path.resolve(root);
+  for (let i = 0; i < 4; i++) {
+    const toml = path.join(cur, 'Cargo.toml');
+    if (fs.existsSync(path.join(cur, 'projects')) && fs.existsSync(toml) && /^\s*\[workspace\]/m.test(fs.readFileSync(toml, 'utf8'))) return cur;
+    const up = path.dirname(cur);
+    if (up === cur) break;
+    cur = up;
+  }
+  return null;
+}
+const rsIn = (d) => { try { return fs.readdirSync(d).filter((n) => RS.test(n)).sort((a, b) => (a === 'lib.rs' ? -1 : b === 'lib.rs' ? 1 : a.localeCompare(b))).map((n) => path.join(d, n)); } catch (e) { return []; } };
+function projectsList({ root }) {
+  const home = projectsHome(root);
+  if (!home) return { root, configured: true, projects: [] };
+  let dirs = [];
+  try { dirs = fs.readdirSync(path.join(home, 'projects'), { withFileTypes: true }).filter((e) => e.isDirectory() && PROJECT_DIR.test(e.name) && fs.existsSync(path.join(home, 'projects', e.name, 'Cargo.toml'))).map((e) => e.name); } catch (e) { /* none */ }
+  const projects = dirs.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map((id) => {
+    const mine = path.join(home, 'projects', id);
+    return {
+      id, kind: 'cargo', home,
+      label: id.replace(/^r(\d+)_/, (x, n) => `R${n} `).replace(/_/g, ' '),
+      stub: id,
+      stubFiles: rsIn(path.join(mine, 'src')),
+      tests: rsIn(path.join(mine, 'tests')),
+      solutionFiles: rsIn(path.join(home, 'solutions', id, 'src')),
+    };
+  });
+  return { root, home, configured: true, projects };
+}
+// libtest's summary lines, added up over every test program
+function libtestSummary(output) {
+  let passed = 0, failed = 0, seen = false;
+  for (const m of String(output || '').matchAll(/^test result: \w+\. (\d+) passed; (\d+) failed/gm)) { passed += +m[1]; failed += +m[2]; seen = true; }
+  return seen ? { passed, failed, total: passed + failed } : null;
+}
+async function projectRun({ root, id, testName }) {
+  const home = projectsHome(root);
+  const p = home && projectsList({ root: home }).projects.find((x) => x.id === id);
+  if (!p) throw new Error(`No project ${id}`);
+  const args = ['test', '-p', id, ...(testName ? ['--', testName, '--exact'] : [])];
+  const r = await cargo(home, args, { title: testName ? `${p.label}: ${testName}` : `${p.label}: tests`, source: 'cargo', timeoutMs: 120000 });
+  const summary = libtestSummary(r.output);
+  // no summary at all and a non-zero exit: it didn't compile
+  if (!summary && r.code !== 0) return { ok: false, built: false, id, code: r.code, problems: r.problems, summary: null };
+  const result = { ok: r.code === 0, built: true, id, code: r.code, problems: r.problems, summary, testName: testName || null, at: Date.now() };
+  if (!testName) api.broadcast('projects.result', result);
+  return result;
+}
+
 // ------------------------------------------------------------------ clippy, rustfmt, explain
 async function clippy({ file }) {
   const ctx = context({ file });
@@ -336,4 +394,4 @@ function init(a) {
   a.register('rust.testList', testList);
 }
 
-module.exports = { init, context, cargoRoot, build, run, debug, testList, testRun, testLocate, clippy, format, explain, sandboxRun, sandboxAsm, sandboxFile, tools, RS, EDITIONS, metadata };
+module.exports = { init, projectsList, projectRun, projectsHome, libtestSummary, context, cargoRoot, build, run, debug, testList, testRun, testLocate, clippy, format, explain, sandboxRun, sandboxAsm, sandboxFile, tools, RS, EDITIONS, metadata };

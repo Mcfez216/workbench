@@ -1,0 +1,18 @@
+# The finished version, tested with the same tests as your project
+[package]
+name = "r02_todo_list_solution"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "r02_todo_list"
+path = "src/lib.rs"
+test = false
+doctest = false
+
+[[test]]
+name = "r02_todo_list"
+path = "../../projects/r02_todo_list/tests/r02_todo_list.rs"
+
+[dependencies]

@@ -618,6 +618,47 @@ async function test(name, fn) {
     fs.rmSync(work, { recursive: true, force: true });
   });
 
+  await test('rust projects: R01-R05 from the vault, your stub fails, the solution passes, one test at a time, the notes are there', async () => {
+    if (!require('./../server/platform').which('cargo')) { console.log('        (skipped: no cargo)'); return; }
+    const from = path.join(__dirname, '..', 'vaults', 'Rust-Path', '_code');
+    const ws = path.join(HOME, 'rust-path');
+    const cp = await call('files.copyDir', { from, to: ws });
+    assert.strictEqual(cp.copied, 28, `copied ${cp.copied}`);
+    assert.ok(!fs.existsSync(path.join(ws, 'target')));
+    // from a file inside a project, the sidebar still finds the workspace
+    const lib = path.join(ws, 'projects', 'r01_word_frequency', 'src', 'lib.rs');
+    const r = await call('cmake.root', { file: lib });
+    assert.strictEqual(r.kind, 'cargo');
+    const l = await call('projects.list', { root: r.root });
+    assert.deepStrictEqual(l.projects.map((p) => p.label), ['R01 word frequency', 'R02 todo list', 'R03 bank ledger', 'R04 route planner', 'R05 packet parser']);
+    const p1 = l.projects[0];
+    assert.deepStrictEqual(p1.stubFiles, [lib]);
+    assert.match(p1.tests[0], /tests[\\/]r01_word_frequency\.rs$/);
+    assert.match(p1.solutionFiles[0], /solutions[\\/]r01_word_frequency[\\/]src[\\/]lib\.rs$/);
+    // the stub: it builds, and every test fails, pointing at its todo!()
+    const a = await call('projects.run', { root: r.root, id: 'r01_word_frequency' });
+    assert.strictEqual(a.built, true);
+    assert.deepStrictEqual(a.summary, { passed: 0, failed: 10, total: 10 });
+    assert.ok(a.problems.some((x) => x.file === lib), JSON.stringify(a.problems.slice(0, 2)));
+    // write the solution in: all pass; one test on its own
+    fs.copyFileSync(p1.solutionFiles[0], lib);
+    const b = await call('projects.run', { root: r.root, id: 'r01_word_frequency' });
+    assert.deepStrictEqual(b.summary, { passed: 10, failed: 0, total: 10 });
+    const one = await call('projects.run', { root: r.root, id: 'r01_word_frequency', testName: 'ties_are_alphabetical' });
+    assert.deepStrictEqual(one.summary, { passed: 1, failed: 0, total: 1 });
+    // a stub that doesn't compile says so
+    fs.writeFileSync(lib, 'pub fn words( {\n');
+    const c = await call('projects.run', { root: r.root, id: 'r01_word_frequency' });
+    assert.strictEqual(c.built, false);
+    // plain cargo test (F7) runs the solutions only: they all pass
+    const t = await call('ctest.run', { root: ws });
+    assert.strictEqual(t.summary.failed, 0);
+    assert.strictEqual(t.summary.total, 44);
+    // each project has its note
+    const notes = fs.readdirSync(path.join(__dirname, '..', 'vaults', 'Rust-Path', 'Projects'));
+    for (const p of l.projects) assert.ok(notes.some((n) => n.toUpperCase().startsWith(p.label.split(' ')[0] + ' ')), p.label);
+  });
+
   await test('course vaults: copied to ~/Notes on the first start; new notes later, your edits never replaced', async () => {
     const { execFileSync } = require('child_process');
     const home = fs.mkdtempSync(path.join(HOME, 'first-'));

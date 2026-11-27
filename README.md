@@ -98,12 +98,13 @@ Switch to **Rust** and the same keys do the Rust thing:
 | **Judge** | `.rs` solutions, built with `rustc -O`. |
 | **New project** | a Cargo binary or library with tests. |
 | **Exercises** | eight Rust exercises, from first functions to ownership, enums, errors, traits and I/O. |
+| **Projects** | R01-R05 (word frequency, a to-do list, a bank ledger, a route planner, a packet parser): the vault's `_code` is a Cargo workspace with your starter code (`todo!()` where the work goes) and the solutions. *Copy the vault's code* puts it in `~/rust-path`; the Tests sidebar lists the projects, ▶ runs yours ("3/10"), Shift+F7 runs the `#[test]` under the cursor, ☼ peeks at the solution. |
 
 The **Rust-Path** vault: Phase 0 (setup, Cargo, reading errors), 1 (the
 basics), 2 (ownership and borrowing), 3 (structs, enums, traits, generics,
 lifetimes), 4 (collections, iterators, closures, `Box`/`Rc`/`RefCell`, modules, tests, clippy), 5 (algorithms)
 and 6 (systems and security: threads, channels, `Mutex` and `Arc`, `unsafe`, calling C, fuzzing), cheat sheets,
-phase gates and five projects. Every example compiles (or doesn't, on
+phase gates and five projects, each with a note, hints one at a time, and a boss test. Every example compiles (or doesn't, on
 purpose, and says so).
 
 Rust comes from **rustup**: `bash scripts/setup-ubuntu.sh --with-rust` on
