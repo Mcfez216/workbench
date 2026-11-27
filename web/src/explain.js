@@ -12,6 +12,12 @@ import { h } from './ui.js';
 const R = (id, re, title, what, why, tryThis, q) => ({ id, re, title, what, why, try: tryThis, q });
 
 export const RULES = [
+  // ---- C++23 modules: import std;
+  R('cpp-std-module', /module '?std(\.compat)?'? not found|unknown module 'std|failed to read module 'std|fatal error: module 'std'|import std.*needs/, 'import std; needs the std module built first',
+    'Your code says import std;, and the compiler couldn\'t find the standard library as a module.',
+    'import std; (C++23) doesn\'t read a header like #include <iostream>. It needs the standard library built into a "module" first, and compilers don\'t do that step for you. MHDE does it for a lone file, the sandbox and the judge, using clang++ with libc++ or g++ 15. In a CMake project, CMake has to do it, and that support is still experimental.',
+    'For a single file, open it outside any CMake project and press F9: MHDE builds the module once and keeps it. In a CMake project, use #include <iostream>, <vector>, <string>... for now. If MHDE says libc++ is missing: on Ubuntu, sudo apt install libc++-dev libc++abi-dev; on Windows, run the installer again.',
+    'Why does import std; need something built before it works, when #include <iostream> doesn\'t?'),
   // ---- Rust: the borrow checker and friends (rustc, while compiling)
   R('rs-moved', /(borrow|use) of moved value|value used here after move|value moved here/, 'Using a value after it moved (Rust)',
     'You used a variable after its value was moved somewhere else.',

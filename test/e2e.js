@@ -522,6 +522,21 @@ async function main() {
       await page.waitForSelector('.menubar-item');
       await page.waitForFunction(() => document.documentElement.dataset.langColours === 'rust');
       await page.waitForTimeout(500);
+      // the switch can follow the tab in front: a .cpp file makes it C++ (blue again)
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('switch follows');
+      await page.waitForSelector('.palette-row.sel:has-text("follows the file")');
+      await page.keyboard.press('Enter');
+      await openTree('examples', '01_greet.cpp');
+      await page.waitForFunction(() => document.documentElement.dataset.langColours === 'cpp');
+      await openTree('rust-path', 'projects', 'r01_word_frequency', 'src', 'lib.rs');
+      await page.waitForFunction(() => document.documentElement.dataset.langColours === 'rust');
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('switch follows');
+      await page.waitForSelector('.palette-row.sel:has-text("follows the file")');
+      await page.keyboard.press('Enter');
       // and off again
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');

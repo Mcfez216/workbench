@@ -5,7 +5,7 @@ import { connect, call, on } from './rpc.js';
 import { h, toast, setHome } from './ui.js';
 import { buildShell, menubar, toolbar, sidebar, panel, tabs, status, command, runCommand } from './layout.js';
 import { THEMES, PALETTES, applyTheme, themeName, usesPixelFont, setThemeLanguage } from './themes.js';
-import { setLanguageConfig, setLanguage, language, otherLanguage, langInfo, toolchainLabel, onLanguageChange } from './lang.js';
+import { setLanguageConfig, setLanguage, language, otherLanguage, langInfo, toolchainLabel, onLanguageChange, fileLanguage } from './lang.js';
 import { initPalette } from './palette.js';
 import { initNewStuff } from './newstuff.js';
 import { initOutline } from './outline.js';
@@ -106,7 +106,7 @@ const MENUS = [
     { cmd: 'help.cppref' }, { cmd: 'help.man' },
   ] },
   { label: 'Options', hot: 'O', items: [
-    { label: 'Language', submenu: [{ cmd: 'lang.set', args: ['c'], label: 'C' }, { cmd: 'lang.set', args: ['cpp'], label: 'C++' }, { cmd: 'lang.set', args: ['rust'], label: 'Rust' }] },
+    { label: 'Language', submenu: [{ cmd: 'lang.set', args: ['c'], label: 'C' }, { cmd: 'lang.set', args: ['cpp'], label: 'C++' }, { cmd: 'lang.set', args: ['rust'], label: 'Rust' }, { sep: true }, { cmd: 'lang.follow' }] },
     { label: 'Theme', submenu: Object.entries(THEMES).map(([k, t]) => ({ cmd: 'theme.set', args: [k], label: t.label })) },
     { label: 'Retro colours', submenu: Object.entries(PALETTES).map(([k, label]) => ({ cmd: 'look.palette', args: [k], label })) },
     { cmd: 'look.langColours' },
@@ -161,6 +161,16 @@ function setTheme(name, size = cfg.fontSize) {
   status.set('theme', THEMES[name].label, { order: 90, title: 'Theme (click for the next one)', onclick: () => runCommand('theme.next') });
 }
 
+// "The switch follows the file you're in" (Settings → Language): a .c, .cpp
+// or .rs tab (or a sandbox) sets the switch while it's in front. Only for
+// now: the language you chose is what's saved. A .h could be either, so it
+// leaves the switch alone.
+function followFile(t) {
+  if (!t || !(cfg.editor || {}).followFile) return;
+  const l = t.langId || (t.file && !/\.h$/i.test(t.file) ? fileLanguage(t.file) : null);
+  if (l && l !== language()) setLanguage(l);
+}
+
 function showLanguage() {
   const l = language();
   status.set('langmode', `${langInfo(l).label}: ${toolchainLabel(l)}`, { order: 85, title: `Working in ${langInfo(l).label}: new files, the sandbox and the judge use it. Click (or Ctrl+Shift+J) for ${langInfo(otherLanguage()).label}.`, onclick: () => runCommand('lang.toggle') });
@@ -173,6 +183,12 @@ function appCommands() {
     setLanguage(l);                 // the switch lights up and the status line says it: no toast needed
     await saveCfg({ language: l });
   }, { needsArgs: true });
+  command('lang.follow', 'The language switch follows the file you\'re in (on/off)', [], async () => {
+    const on = !(cfg.editor || {}).followFile;
+    cfg = await saveCfg({ editor: { ...cfg.editor, followFile: on } });
+    if (on) followFile(tabs.active());
+    toast(on ? 'The switch now follows the tab in front: .c is C, .cpp C++, .rs Rust.' : 'The switch stays where you put it.', 'ok', 4000);
+  });
   command('lang.toggle', 'Next language (C, C++, Rust)', ['Ctrl+Shift+J'], () => runCommand('lang.set', otherLanguage()));
   command('look.palette', 'Retro colours', [], async (p) => { cfg = await saveCfg({ look: { ...cfg.look, palette: p } }); setTheme(themeName()); toast(`Retro colours: ${PALETTES[p]}`, 'ok', 2000); }, { needsArgs: true });
   command('look.langColours', 'Colour by language (C light blue, C++ blue, Rust orange)', [], async () => {
@@ -328,7 +344,7 @@ async function boot() {
   if (panelId && panel.views.has(panelId)) panel.show(panelId); else panel.hide();
 
   const prevChange = tabs.onChange;
-  tabs.onChange = (t) => { prevChange(t); call('state.set', { key: 'session.active', value: t ? t.id : null }); if (t && t.file) refreshGit(); };
+  tabs.onChange = (t) => { prevChange(t); call('state.set', { key: 'session.active', value: t ? t.id : null }); if (t && t.file) refreshGit(); followFile(t); };
 
   const vaultKey = (c) => JSON.stringify(c.vaults || []);
   onSettingsSaved((saved) => {

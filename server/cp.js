@@ -75,10 +75,18 @@ async function judge({ file, cases, timeLimitMs }) {
   const exe = require('./platform').exe(config.dataPath('cp-bin', path.basename(file).replace(/\.\w+$/, '')));
   const flags = cfg.judge.flags && cfg.judge.flags.length ? cfg.judge.flags : ['-O2', '-Wall'];
   // Rust: an optimised build, like the judges use (overflow checks off in -O)
+  // import std; (C++23): the std module, built once for these flags, like a lone file's
+  let m = null;
+  if (!rust && tc.lang !== 'c') {
+    try { m = await require('./modules').prepareAny({ cc: tc.cc, std: tc.std, flags, file }); }
+    catch (err) { return { compiled: false, problems: [{ file, line: 1, col: 1, severity: 'error', message: err.message.split('\n')[0], source: 'modules' }], results: [] }; }
+  }
   const c = rust
     ? await execStream({ cmd: 'rustc', args: ['--edition', String(cfg.build.rustEdition || '2024'), '--color=never', '-O', '-o', exe, file], cwd: path.dirname(file), title: `judge: rustc -O ${path.basename(file)}`, source: 'rustc' })
-    : await execStream({ cmd: tc.cc, args: [`-std=${tc.std}`, ...flags, '-o', exe, file, ...(tc.lang === 'c' ? ['-lm'] : [])],
-      cwd: path.dirname(file), title: `judge: compile ${path.basename(file)}` });
+    : m
+      ? await execStream({ cmd: m.cc, args: [`-std=${m.std}`, ...flags, ...m.args, '-o', exe, file, ...m.inputs], cwd: path.dirname(file), title: `judge: compile ${path.basename(file)} (import std)` })
+      : await execStream({ cmd: tc.cc, args: [`-std=${tc.std}`, ...flags, '-o', exe, file, ...(tc.lang === 'c' ? ['-lm'] : [])],
+        cwd: path.dirname(file), title: `judge: compile ${path.basename(file)}` });
   if (c.code !== 0) return { compiled: false, problems: c.problems, results: [] };
   const results = [];
   for (const k of list) {
@@ -91,7 +99,7 @@ async function judge({ file, cases, timeLimitMs }) {
     else verdict = same(r.out, k.expected) ? 'AC' : 'WA';
     results.push({ verdict, ms: Math.round(r.ms), output: r.out.slice(0, 64 * 1024), stderr: r.err.slice(0, 8 * 1024), code: r.code, signal: r.signal });
   }
-  return { compiled: true, problems: c.problems, results, timeLimitMs: tl };
+  return { compiled: true, problems: c.problems, results, timeLimitMs: tl, note: m && m.note ? m.note : undefined };
 }
 
 // A new problem: a copy of the vault's template.cpp (or template.c) to start from.

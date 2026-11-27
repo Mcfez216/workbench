@@ -546,6 +546,12 @@ async function test(name, fn) {
     const d = await call('build.build', { file: drill });
     assert.strictEqual(d.code, 0, JSON.stringify(d.problems));
     assert.strictEqual(require('child_process').execFileSync(d.exe, { encoding: 'utf8' }), '3 42\n');
+    // the judge (F8) too: import std; with -O2, cases judged
+    const sol = path.join(dir, 'sum.cpp');
+    fs.writeFileSync(sol, 'import std;\nint main() { long long a, b; std::cin >> a >> b; std::cout << a + b << "\\n"; }\n');
+    const j = await call('cp.judge', { file: sol, cases: [{ input: '2 3\n', expected: '5\n' }, { input: '10 -4\n', expected: '6\n' }] });
+    assert.ok(j.compiled, JSON.stringify(j.problems));
+    assert.deepStrictEqual(j.results.map((x) => x.verdict), ['AC', 'AC']);
     // a commented-out import doesn't count; a plain #include program is untouched
     fs.writeFileSync(hello, '// import std;\n#include <iostream>\nint main() { std::cout << "plain\\n"; }\n');
     const p = await call('build.build', { file: hello });

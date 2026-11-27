@@ -17,14 +17,16 @@ switch. A `.rs` file is always Rust: see [Rust](#rust).
 unless you turn it on): the theme's main colour follows the switch. C is a
 lighter blue, C++ the theme's own dark blue, Rust a burnt orange, so you can
 tell at a glance which one you're in. It works in every theme except Amber
-CRT, which is one colour on purpose.
+CRT, which is one colour on purpose. Pair it with **Follow the file**
+(Settings → Language, or Options → Language): the switch then follows the tab
+in front, so a `.rs` file turns the screen orange and a `.c` file light blue.
 
 **`import std;` works.** C++23's `import std;` (the first line of every
 program in Stroustrup's *Programming: Principles and Practice*, 3rd edition,
 and of its `PPP_support.h`) needs the standard library prebuilt as a module,
 which compilers don't do by themselves ("module 'std' not found"). MHDE
 builds it the first time a lone file or the sandbox needs it (a few seconds),
-keeps it, and links it in: with clang++ and libc++ (llvm-mingw on Windows has
+keeps it, and links it in (lone files, the sandbox and the judge): with clang++ and libc++ (llvm-mingw on Windows has
 it; Ubuntu needs `libc++-dev`), or g++ 15 or newer. Older g++ hands the file
 to clang++, and a file below C++23 is built as C++23; a note says so.
 

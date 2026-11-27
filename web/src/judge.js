@@ -93,7 +93,7 @@ async function openJudge(file) {
         if (!r.compiled) { finishRun({ code: 1, problems: r.problems }, '', 'Judge: compile error'); clear(summary); summary.append(h('span', { class: 'verdict v-CE' }, 'CE'), ' Compile error: see Problems'); draw(); return; }
         const ac = r.results.filter((x) => x.verdict === 'AC').length;
         const judged = r.results.filter((x) => x.verdict !== 'RAN').length;
-        finishRun({ code: 0, problems: r.problems }, judged ? `Judge: ${ac}/${judged} accepted` : 'Judge: ran');
+        finishRun({ code: 0, problems: r.problems, note: r.note }, judged ? `Judge: ${ac}/${judged} accepted` : 'Judge: ran');
         clear(summary);
         const worst = ['RE', 'TLE', 'OLE', 'WA', 'AC', 'RAN'].find((v) => r.results.some((x) => x.verdict === v));
         summary.append(h('span', { class: 'verdict v-' + worst }, worst), ` ${judged ? `${ac} of ${judged} cases accepted` : 'no expected output given'} · slowest ${Math.max(...r.results.map((x) => x.ms))} ms of ${r.timeLimitMs}`);

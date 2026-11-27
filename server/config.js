@@ -83,7 +83,7 @@ function defaults() {
     folders: [],                 // more folders shown in Files next to the workspace
     vault: null,                 // old single-vault setting; kept in step with vaults[0]
     vaults: [],                  // [{ path, name }]: every notes vault shown in Guides
-    editor: { autosave: false, wrap: false, snippets: true, banned: true },   // banned: underline gets, strcpy... in C and C++
+    editor: { autosave: false, wrap: false, snippets: true, banned: true, followFile: false },   // followFile: the language switch follows the tab in front   // banned: underline gets, strcpy... in C and C++
     exercisesDir: '~/workbench-exercises',
     // comfort: calmer for ADHD / autistic brains (and everyone else)
     comfort: {
