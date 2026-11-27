@@ -34,7 +34,8 @@ function findVault() {
   return require('./distro').findFolderWith(START_NOTE, { accept: (d) => !path.resolve(d).startsWith(APP_DIR + path.sep) });
 }
 
-// The course vaults that come with the app (vaults/CPP-Path, vaults/C-Path).
+// The course vaults that come with the app (vaults/C-Path, vaults/CCNA-Path,
+// vaults/CPP-Path).
 // On the first start, with no vault of your own, they're copied to ~/Notes
 // and shown in Guides. Later, "Get new course notes" copies notes added in
 // an update. Either way a file that's already there is never replaced: your
@@ -42,7 +43,8 @@ function findVault() {
 const BUNDLED = path.join(APP_DIR, 'vaults');
 function bundledVaults() {
   try {
-    return fs.readdirSync(BUNDLED, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => ({ name: e.name, from: path.join(BUNDLED, e.name) }));
+    return fs.readdirSync(BUNDLED, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => ({ name: e.name, from: path.join(BUNDLED, e.name) }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));   // the same order on every system
   } catch (e) { return []; }
 }
 function copyMissing(from, to) {
