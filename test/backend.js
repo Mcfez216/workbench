@@ -818,6 +818,30 @@ async function test(name, fn) {
     fs.rmSync(own, { recursive: true, force: true });
   });
 
+  await test('coverage: one run of a file (with input) marks what ran; a CMake project\'s tests show what they reach', async () => {
+    const dir = fs.mkdtempSync(path.join(HOME, 'cov-'));
+    const file = path.join(dir, 'grade.c');
+    fs.writeFileSync(file, '#include <stdio.h>\n\nint main(void)\n{\n    int score = 0;\n    if (scanf("%d", &score) != 1)\n        return 1;\n    if (score >= 50)\n        puts("pass");\n    else\n        puts("fail");\n    return 0;\n}\n');
+    const r = await call('coverage.run', { file, input: '70\n' });
+    assert.ok(r.ok, JSON.stringify(r).slice(0, 300));
+    const f = r.files[0];
+    assert.strictEqual(f.file, file);
+    assert.ok(f.lines[9] >= 1, 'puts("pass") ran');
+    assert.strictEqual(f.lines[11], 0, 'puts("fail") never ran');
+    assert.strictEqual(f.lines[7], 0, 'the early return never ran');
+    assert.ok(f.percent > 50 && f.percent < 100, String(f.percent));
+    // the fixture project: its tests call add, sub and square
+    const p = await call('coverage.run', { file: LIB });
+    assert.ok(p.ok, JSON.stringify(p).slice(0, 400));
+    assert.strictEqual(p.kind, 'project');
+    const lib = p.files.find((x) => x.file === LIB);
+    assert.ok(lib, p.files.map((x) => x.file).join(', '));
+    assert.strictEqual(lib.percent, 100);
+    assert.ok(!p.files.some((x) => /build-coverage|_deps/.test(x.file)));
+    fs.rmSync(path.join(PROJ, 'build-coverage'), { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   await test('course vaults: copied to ~/Notes on the first start; new notes later, your edits never replaced', async () => {
     const { execFileSync } = require('child_process');
     const home = fs.mkdtempSync(path.join(HOME, 'first-'));

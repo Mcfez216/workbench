@@ -1003,3 +1003,18 @@ html[data-pixel="yes"] .today-title { font-weight: normal; }
 .lib-row { display: flex; flex-direction: column; align-items: flex-start; gap: 0.1em; text-align: left; }
 .lib-name { font-weight: bold; }
 html[data-pixel="yes"] .lib-name { font-weight: normal; color: var(--accent); }
+
+/* ---- coverage */
+.cm-cov-gutter { min-width: 3.2ch; font-size: 0.8em; }
+.cm-cov-gutter .cm-gutterElement { text-align: right; padding: 0 0.4ch; }
+.cm-cov-hit { color: var(--ok); }
+.cm-cov-miss { color: var(--error); font-weight: bold; }
+.cm-cov-missLine { background: color-mix(in srgb, var(--error) 14%, transparent); }
+.coverage { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.cov-head { display: flex; align-items: center; gap: 0.6em; padding: 0.3em 0.6em; border-bottom: 1px solid var(--panel-border); }
+.cov-total { font-weight: bold; color: var(--accent); }
+.cov-list { overflow: auto; flex: 1; }
+.cov-row { display: flex; gap: 1ch; align-items: center; }
+.cov-bar { width: 10ch; height: 0.7em; background: color-mix(in srgb, var(--error) 35%, transparent); display: inline-block; flex: none; }
+.cov-fill { display: block; height: 100%; background: var(--ok); }
+.cov-pct { width: 5ch; text-align: right; flex: none; }

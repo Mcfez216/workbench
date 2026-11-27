@@ -202,7 +202,7 @@ int main() {
     files[`src/main.${ext}`] = fileTemplate('main', `src/main.${ext}`, lang).replace(/Hello from main!/, `Hello from ${id}!`);
   }
   files['CMakeLists.txt'] = cm;
-  files['.gitignore'] = 'build/\n.cache/\n';
+  files['.gitignore'] = 'build/\nbuild-coverage/\n.cache/\n';
   files['.clang-format'] = 'BasedOnStyle: LLVM\nIndentWidth: 4\nColumnLimit: 100\nAllowShortFunctionsOnASingleLine: Empty\n';
   files['README.md'] = `# ${id}\n\nA ${c ? 'C17' : 'C++20'} project. In the workbench: Alt+F9 configures, F9 builds, Ctrl+F9 runs${kind === 'library' ? ', F7 runs the tests' : ''}, Ctrl+Shift+D debugs.\n\nFrom a terminal:\n\n\`\`\`bash\ncmake -S . -B build\ncmake --build build\n${kind === 'library' ? 'ctest --test-dir build --output-on-failure\n' : ''}./build/${id}\n\`\`\`\n`;
   return files;

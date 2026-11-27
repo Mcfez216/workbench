@@ -17,6 +17,7 @@ import { initMemviz } from './memviz.js';
 import { initDebugger } from './debugger.js';
 import { initTracks } from './tracks.js';
 import { initLibraries } from './libraries.js';
+import { initCoverage } from './coverage.js';
 import { initCompare } from './compare.js';
 import { initReference } from './reference.js';
 import { initSecurity } from './security.js';
@@ -60,7 +61,7 @@ const MENUS = [
     { cmd: 'view.toolbar' }, { cmd: 'view.sidebar' }, { cmd: 'view.panel' }, { cmd: 'help.start', label: 'Start screen' },
   ] },
   { label: 'Build', hot: 'B', items: [
-    { cmd: 'build.build' }, { cmd: 'build.run' }, { cmd: 'build.runArgs' }, { sep: true }, { cmd: 'debug.start' }, { cmd: 'debug.toggle' }, { cmd: 'debug.clearAll' }, { cmd: 'debug.panel' }, { cmd: 'build.debug' }, { sep: true }, { cmd: 'build.valgrind' }, { cmd: 'build.tsan' }, { sep: true },
+    { cmd: 'build.build' }, { cmd: 'build.run' }, { cmd: 'build.runArgs' }, { sep: true }, { cmd: 'debug.start' }, { cmd: 'debug.toggle' }, { cmd: 'debug.clearAll' }, { cmd: 'debug.panel' }, { cmd: 'build.debug' }, { sep: true }, { cmd: 'build.valgrind' }, { cmd: 'build.tsan' }, { cmd: 'coverage.run' }, { sep: true },
     { cmd: 'build.configure' }, { cmd: 'build.fresh' }, { cmd: 'build.target' }, { cmd: 'build.pickTarget' }, { sep: true },
     { cmd: 'analyze.tidy' }, { cmd: 'analyze.cppcheck' }, { sep: true },
     { cmd: 'build.nextProblem' }, { cmd: 'build.prevProblem' }, { cmd: 'build.showProblems' },
@@ -326,7 +327,7 @@ async function boot() {
   buildShell(root, FKEYS);
   initEditorCommands(); initFiles(); initExercises(); initOutline(); initTerminal(); initBuild(); initTests(); initJudge(); initGit(); initGuides(); initNotes(); initRevise();
   await initIrc(); initMail(); initMusic(); initSettings(); initWelcome(); initPalette(); initNewStuff(); initStart();
-  initComfort(); initProgress(); initMemviz(); initDebugger(); initTracks(); initLibraries(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
+  initComfort(); initProgress(); initMemviz(); initDebugger(); initTracks(); initLibraries(); initCoverage(); initCompare(); initReference(); initSecurity(); initHabits(); appCommands();
   applyComfort(cfg);
   menubar.build(MENUS);
   toolbar.build(TOOLBAR);

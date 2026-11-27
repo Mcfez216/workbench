@@ -662,6 +662,20 @@ async function main() {
       await page.locator('.dialog .dlg-btn', { hasText: 'Cancel' }).click();
     });
 
+    await step('coverage: the tests run in build-coverage/, the panel shows the percentage, the editor marks each line', async () => {
+      await openTree('src', 'mathx.cpp');
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('Coverage: which lines ran');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.coverage .cov-total', { timeout: 180000 });
+      assert.match(await page.locator('.coverage .cov-total').innerText(), /\d+% of lines ran/);
+      await page.waitForSelector('.tab-page.active .cm-cov-hit');
+      await shot('24-coverage');
+      await page.locator('.coverage .btn', { hasText: 'Clear' }).click();
+      await page.waitForFunction(() => !document.querySelector('.tab-page.active .cm-cov-hit'));
+    });
+
     await step('the palette runs anything by name; New file makes a C program; the outline lists it', async () => {
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');

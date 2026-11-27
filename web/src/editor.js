@@ -35,6 +35,7 @@ import { editorHighlight } from './highlight.js';
 import { fileLanguage } from './lang.js';
 import { bannedFunctions } from './banned.js';
 import { breakpoints } from './bpgutter.js';
+import { coverageExtension } from './covdeco.js';
 
 let cfg = null;
 export function setConfig(c) {
@@ -348,6 +349,18 @@ class KPWorkspace extends Workspace {
   }
 }
 
+// A language server that's busy (indexing, or the machine is building)
+// answers late: its timed-out request isn't an error worth a pop-up, and
+// the next keystroke asks again.
+window.addEventListener('unhandledrejection', (e) => {
+  if (/Request timed out/.test(String(e.reason && e.reason.message || e.reason))) {
+    e.preventDefault();
+    status.set('lsp-slow', 'language server busy', { order: 21, title: 'clangd or rust-analyzer took too long to answer; completion catches up when it\'s free' });
+    clearTimeout(window.cpwLspSlow);
+    window.cpwLspSlow = setTimeout(() => status.set('lsp-slow', ''), 15000);
+  }
+});
+
 const clients = new Map();
 const SESSION = Math.random().toString(36).slice(2) + Date.now().toString(36);   // this window load
 const missing = new Set();      // servers that aren't installed: said once, not tried again until the window reloads
@@ -366,7 +379,7 @@ function lspClient(root, server = 'clangd') {
       unsubscribe: (fn) => handlers.delete(fn),
     };
     const client = new LSPClient({
-      rootUri: fileUri(root), timeout: 15000,
+      rootUri: fileUri(root), timeout: 30000,
       workspace: (c) => new KPWorkspace(c),
       extensions: [serverCompletion(), hoverTooltips(), serverDiagnostics(), signatureHelp()],
     });
@@ -471,7 +484,7 @@ export async function openFile(file, { line, col, preview, side } = {}) {
           parent: host, doc: res.text, file, lang,
           onChange: (u) => { tabs.setDirty(id, !u.state.doc.eq(this.savedDoc)); autosaveSoon(this); },
           // breakpoints in the margin, for the files the debugger can stop in
-          extra: [lspCompartment.of([]), ...(lang.code ? [breakpoints((lines) => window.dispatchEvent(new CustomEvent('cpw-breakpoints', { detail: { file, lines } })))] : [])],
+          extra: [lspCompartment.of([]), ...(lang.code && lang.id !== 'rust' ? [coverageExtension] : []), ...(lang.code ? [breakpoints((lines) => window.dispatchEvent(new CustomEvent('cpw-breakpoints', { detail: { file, lines } })))] : [])],
         });
         this.savedDoc = this.view.state.doc;
         if (lang.code) window.dispatchEvent(new CustomEvent('cpw-editor-opened', { detail: { file, view: this.view } }));
