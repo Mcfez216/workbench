@@ -13,6 +13,12 @@ standard (gcc / C17 and g++ / C++20 unless you change them in Settings). A
 `.c` file is always C and a `.cpp` file always C++; a `.h` header follows the
 switch. A `.rs` file is always Rust: see [Rust](#rust).
 
+**Colour by language** (Settings → Look, or Options → Colour by language; off
+unless you turn it on): the theme's main colour follows the switch. C is a
+lighter blue, C++ the theme's own dark blue, Rust a burnt orange, so you can
+tell at a glance which one you're in. It works in every theme except Amber
+CRT, which is one colour on purpose.
+
 **`import std;` works.** C++23's `import std;` (the first line of every
 program in Stroustrup's *Programming: Principles and Practice*, 3rd edition,
 and of its `PPP_support.h`) needs the standard library prebuilt as a module,

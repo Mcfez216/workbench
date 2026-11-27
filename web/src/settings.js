@@ -42,6 +42,7 @@ async function openSettings() {
         theme: choice(Object.entries(THEMES).map(([k, t]) => [k, t.label]), c.theme),
         palette: choice(Object.entries(PALETTES), look.palette),
         retroFont: choice([['vga', 'VGA pixel font'], ['modern', 'Smooth modern font']], look.retroFont),
+        langColours: h('input', { type: 'checkbox', checked: !!look.langColours, 'aria-label': 'Colour by language' }),
         fontSize: null,
         keymap: choice([['vim', 'Vim'], ['standard', 'Standard (Ctrl+S...)'], ['emacs', 'Emacs']], c.keymap),
         language: choice([['c', 'C'], ['cpp', 'C++'], ['rust', 'Rust']], c.language || 'cpp'),
@@ -85,8 +86,8 @@ async function openSettings() {
       const sizeHost = h('div', {}, f.fontSize);
       const resize = () => { const v = +f.fontSize.value; const opts = sizes(); const keep = opts.some(([x]) => x === v) ? v : opts.reduce((a, [x]) => (Math.abs(x - v) < Math.abs(a - v) ? x : a), opts[0][0]); f.fontSize = choice(opts, keep); f.fontSize.addEventListener('change', preview); sizeHost.replaceChildren(f.fontSize); };
       // preview the look straight away
-      const preview = () => applyTheme(f.theme.value, +f.fontSize.value, { palette: f.palette.value, retroFont: f.retroFont.value });
-      for (const x of [f.theme, f.palette, f.retroFont]) x.addEventListener('change', () => { resize(); preview(); });
+      const preview = () => applyTheme(f.theme.value, +f.fontSize.value, { palette: f.palette.value, retroFont: f.retroFont.value, langColours: f.langColours.checked });
+      for (const x of [f.theme, f.palette, f.retroFont, f.langColours]) x.addEventListener('change', () => { resize(); preview(); });
       f.fontSize.addEventListener('change', preview);
       // the vaults: a row each, name and folder, removable; Add puts a new row
       const vaultRows = h('div', { class: 'vault-rows' });
@@ -103,7 +104,7 @@ async function openSettings() {
       const words = (s) => s.value.trim() ? s.value.trim().split(/\s+/) : [];
       const collect = (latest) => ({
         ...latest, theme: f.theme.value, fontSize: +f.fontSize.value, keymap: f.keymap.value,
-        look: { ...latest.look, palette: f.palette.value, retroFont: f.retroFont.value },
+        look: { ...latest.look, palette: f.palette.value, retroFont: f.retroFont.value, langColours: f.langColours.checked },
         language: f.language.value,
         editor: { ...latest.editor, autosave: f.autosave.checked, wrap: f.wrap.checked, snippets: f.snippets.checked, banned: f.banned.checked },
         comfort: { ...latest.comfort, quiet: f.quiet.checked, reduceMotion: f.reduceMotion.checked, spacing: f.spacing.value, readingFont: f.readingFont.value, breakReminder: +f.breakReminder.value, whereOnStart: f.whereOnStart.checked },
@@ -157,6 +158,7 @@ async function openSettings() {
         h('h2', {}, 'Look'),
         ...field('Theme', f.theme, 'The retro themes are the DOS screens you remember; Amber CRT is a monochrome monitor; Modern is a plain dark editor.'),
         ...field('Retro colours', f.palette, 'Soft keeps the DOS look with toned-down colours that are easy on an LCD (no full-brightness blue and yellow). Authentic VGA is the real 1991 palette.'),
+        ...field('Colour by language', f.langColours, 'The theme\'s main colour follows the language switch: C a lighter blue, C++ the dark blue, Rust orange. Every theme except Amber CRT.'),
         ...field('Retro font', f.retroFont, 'The VGA pixel font is only sharp at 16px or 32px. The modern font keeps the frames and colours and works at any size.'),
         ...field('Text size', sizeHost),
         ...field('Editor keys', f.keymap, 'Vim matches the vault\'s Neovim setup (:CMakeBuild, \\cb, \\ct, :A...). Vim and Emacs keys get every key except F1-F12 and Ctrl+Shift combinations.'),

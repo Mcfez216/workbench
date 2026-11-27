@@ -28,6 +28,41 @@ const SOFT = {
 };
 export const PALETTES = { soft: 'Soft (easy on an LCD)', vga: 'Authentic VGA' };
 
+// "Colour by language" (Settings → Look, off unless you turn it on): the
+// theme's main colour follows the language switch. C is a lighter blue,
+// C++ the theme's own dark blue, Rust a burnt orange. In the retro looks
+// the palette's blues are swapped, so the whole screen changes; in Modern
+// and Calm the accents do (tabs, titles, the mode badge, focused buttons).
+// Amber CRT is one colour by design and stays amber. Text stays at the same
+// contrast: the new backgrounds are as dark as the blue they replace.
+export const LANG_COLOURS = {
+  soft: {
+    c: { blue: '#2a4f8c', navy: '#203f72', bblue: '#9cb8f2' },
+    rust: { blue: '#7a3a14', navy: '#5c2b0e', bblue: '#f2a66a' }, rustMatch: '#4f6a9a',
+  },
+  vga: {
+    c: { blue: '#0050C0', navy: '#003A90', bblue: '#77AAFF' },
+    rust: { blue: '#A04000', navy: '#783000', bblue: '#FF9955' }, rustMatch: '#0000AA',
+  },
+  modern: { c: '#7dcfff', cpp: '#7aa2f7', rust: '#ff9e64' },
+  calm: { c: '#9cc3dc', cpp: '#8fa8c4', rust: '#d49a6e' },
+};
+function accentVars(base, colour, darkText) {
+  return { ...base, accent: colour, 'menu-hot': colour, 'panel-title': colour, 'side-dir': colour, 'tab-border': colour,
+    'mode-bg': colour, 'mode-fg': darkText, 'button-focus-bg': colour, 'button-focus-fg': darkText, 'dialog-title': colour,
+    'callout-title': colour, 'syn-heading': colour, 'gutter-active': colour };
+}
+function byLanguage(t, name, palette, lang) {
+  if (!lang || lang === 'cpp' && name !== 'modern' && name !== 'calm') return t;
+  if (name === 'modern' || name === 'calm') {
+    const colour = LANG_COLOURS[name][lang];
+    return colour ? { ...t, vars: accentVars(t.vars, colour, t.vars['editor-bg']) } : t;
+  }
+  // brown (the bracket-match colour) would vanish on an orange screen
+  if (lang === 'rust' && !t.fixedPalette) return { ...t, vars: { ...t.vars, 'match-bg': LANG_COLOURS[palette === 'vga' ? 'vga' : 'soft'].rustMatch } };
+  return t;
+}
+
 const ansiOf = (P) => [P.black, P.red, P.green, P.brown, P.blue, P.magenta, P.cyan, P.grey,
   P.dgrey, P.bred, P.bgreen, P.yellow, P.bblue, P.bmagenta, P.bcyan, P.white];
 const VGA_FONT = '"Kernel Path VGA", "DejaVu Sans Mono", monospace';
@@ -203,9 +238,15 @@ export const THEMES = {
   calm: { label: 'Calm (low contrast)', retro: false, frame: 'solid', cursorStyle: 'block' },
 };
 
-function resolve(name, palette) {
+function resolve(name, palette, lang = null) {
+  return byLanguage(resolveBase(name, palette, lang), name, palette, lang);
+}
+function resolveBase(name, palette, lang) {
   const t = THEMES[name];
-  const P = palette === 'vga' ? VGA : SOFT;
+  const base = palette === 'vga' ? VGA : SOFT;
+  // colour by language, in the retro looks: the blues are swapped
+  const swap = lang && LANG_COLOURS[palette === 'vga' ? 'vga' : 'soft'][lang];
+  const P = swap ? { ...base, ...swap } : base;
   if (name === 'modern') {
     return { ...t, vars: MODERN, nicks: ['#7aa2f7', '#9ece6a', '#e0af68', '#bb9af7', '#f7768e', '#7dcfff', '#ff9e64', '#73daca'],
       ansi: ['#15161e', '#f7768e', '#9ece6a', '#e0af68', '#7aa2f7', '#bb9af7', '#7dcfff', '#a9b1d6', '#414868', '#f7768e', '#9ece6a', '#e0af68', '#7aa2f7', '#bb9af7', '#7dcfff', '#c0caf5'],
@@ -244,11 +285,13 @@ function resolve(name, palette) {
       ansi: [A.deep, '#d9603f', '#a9b250', A.mid, A.lo, '#c2794a', '#c9a35a', A.fg, A.dim, '#ff7b5c', '#c9d36a', '#f5cf6b', A.mid, '#e09366', A.hi, '#f7d9a0'],
       selection: { bg: A.mid, fg: A.deep } };
   }
-  return { ...t, vars: RETRO[name].vars(P), nicks: RETRO[name].nicks(P), ansi: ansiOf(P), selection: { bg: P.grey, fg: P.black } };
+  return { ...t, vars: RETRO[name].vars(P), nicks: RETRO[name].nicks(base), ansi: ansiOf(base), selection: { bg: P.grey, fg: P.black } };
 }
 
 let current = 'blue';
-let look = { palette: 'soft', retroFont: 'vga' };
+let look = { palette: 'soft', retroFont: 'vga', langColours: false };
+let lastSize = 16;
+let themeLang = 'cpp';
 let resolved = resolve('blue', 'soft');
 const watchers = new Set();
 
@@ -256,7 +299,8 @@ const watchers = new Set();
 export function applyTheme(name, fontSize = 16, lookOpts) {
   if (lookOpts) look = { ...look, ...lookOpts };
   current = THEMES[name] ? name : 'blue';
-  const t = resolved = resolve(current, look.palette);
+  lastSize = fontSize;
+  const t = resolved = resolve(current, look.palette, look.langColours ? themeLang : null);
   const root = document.documentElement;
   for (const [k, v] of Object.entries(t.vars)) root.style.setProperty(`--${k}`, v);
   t.nicks.forEach((c, i) => root.style.setProperty(`--nick-${i}`, c));
@@ -269,8 +313,16 @@ export function applyTheme(name, fontSize = 16, lookOpts) {
   root.dataset.retro = t.retro ? 'yes' : 'no';
   root.dataset.pixel = pixel ? 'yes' : 'no';
   root.dataset.palette = t.retro && !t.fixedPalette ? look.palette : 'own';
+  root.dataset.langColours = look.langColours && !t.fixedPalette ? themeLang : 'off';
   root.style.colorScheme = 'dark';
   for (const fn of watchers) fn(current, t);
+}
+
+// The language switch moved: with "Colour by language" on, repaint
+export function setThemeLanguage(lang) {
+  if (lang === themeLang) return;
+  themeLang = lang;
+  if (look.langColours) applyTheme(current, lastSize);
 }
 
 export function themeName() { return current; }

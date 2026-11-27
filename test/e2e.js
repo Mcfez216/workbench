@@ -492,6 +492,47 @@ async function main() {
       await page.keyboard.press('Control+W');
     });
 
+    await step('colour by language: off by default; on, C is a lighter blue, C++ the dark blue, Rust orange; the terminal keeps its colours', async () => {
+      const v = (k) => page.evaluate((k) => getComputedStyle(document.documentElement).getPropertyValue(k).trim(), k);
+      const sw = page.locator('.toolbar-main .lang-switch');
+      const cppBg = await v('--editor-bg');
+      await sw.locator('.choice', { hasText: /^C$/ }).click();
+      assert.strictEqual(await v('--editor-bg'), cppBg, 'off unless you turn it on');
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('colour by language');
+      await page.waitForSelector('.palette-row.sel:has-text("Colour by language")');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.documentElement.dataset.langColours === 'c');
+      const cBg = await v('--editor-bg');
+      assert.notStrictEqual(cBg, cppBg);
+      await shot('19-lang-colour-c');
+      await sw.locator('.choice', { hasText: /^C\+\+$/ }).click();
+      await page.waitForFunction(() => document.documentElement.dataset.langColours === 'cpp');
+      assert.strictEqual(await v('--editor-bg'), cppBg, 'C++ is the theme as it was');
+      await shot('19-lang-colour-cpp');
+      await sw.locator('.choice', { hasText: 'Rust' }).click();
+      await page.waitForFunction(() => document.documentElement.dataset.langColours === 'rust');
+      const rustBg = await v('--editor-bg');
+      const [r, g, b] = rustBg.match(/[0-9a-f]{2}/gi).map((x) => parseInt(x, 16));
+      assert.ok(r > g && g > b, `orange-ish: ${rustBg}`);
+      await shot('19-lang-colour-rust');
+      // a theme change keeps it; it survives a reload (it's a setting)
+      await page.reload();
+      await page.waitForSelector('.menubar-item');
+      await page.waitForFunction(() => document.documentElement.dataset.langColours === 'rust');
+      await page.waitForTimeout(500);
+      // and off again
+      await page.keyboard.press('Control+Shift+P');
+      await page.waitForSelector('.palette input:focus');
+      await page.keyboard.type('colour by language');
+      await page.waitForSelector('.palette-row.sel:has-text("Colour by language")');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.documentElement.dataset.langColours === 'off');
+      assert.strictEqual(await v('--editor-bg'), cppBg);
+      await sw.locator('.choice', { hasText: /^C\+\+$/ }).click();
+    });
+
     await step('the palette runs anything by name; New file makes a C program; the outline lists it', async () => {
       await page.keyboard.press('Control+Shift+P');
       await page.waitForSelector('.palette input:focus');

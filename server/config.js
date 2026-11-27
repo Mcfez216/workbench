@@ -75,7 +75,7 @@ function defaults() {
   const workspace = firstExisting([path.join(HOME, 'cpp-path'), path.join(APP_PARENT, 'cpp-path'), path.join(HOME, 'src')]) || HOME;
   return {
     theme: 'blue',
-    look: { palette: 'soft', retroFont: 'vga' },   // soft | vga colours; vga | modern font in the retro themes
+    look: { palette: 'soft', retroFont: 'vga', langColours: false },   // soft | vga colours; vga | modern font in the retro themes; colour by language (C light blue, C++ blue, Rust orange)
     language: 'cpp',             // cpp | c: what new files, the sandbox and the judge start as
     keymap: 'vim',               // vim | standard | emacs (the vault's editor is Neovim, note 0.3)
     fontSize: 16,

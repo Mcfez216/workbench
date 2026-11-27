@@ -4,7 +4,7 @@
 import { connect, call, on } from './rpc.js';
 import { h, toast, setHome } from './ui.js';
 import { buildShell, menubar, toolbar, sidebar, panel, tabs, status, command, runCommand } from './layout.js';
-import { THEMES, PALETTES, applyTheme, themeName, usesPixelFont } from './themes.js';
+import { THEMES, PALETTES, applyTheme, themeName, usesPixelFont, setThemeLanguage } from './themes.js';
 import { setLanguageConfig, setLanguage, language, otherLanguage, langInfo, toolchainLabel, onLanguageChange } from './lang.js';
 import { initPalette } from './palette.js';
 import { initNewStuff } from './newstuff.js';
@@ -109,6 +109,7 @@ const MENUS = [
     { label: 'Language', submenu: [{ cmd: 'lang.set', args: ['c'], label: 'C' }, { cmd: 'lang.set', args: ['cpp'], label: 'C++' }, { cmd: 'lang.set', args: ['rust'], label: 'Rust' }] },
     { label: 'Theme', submenu: Object.entries(THEMES).map(([k, t]) => ({ cmd: 'theme.set', args: [k], label: t.label })) },
     { label: 'Retro colours', submenu: Object.entries(PALETTES).map(([k, label]) => ({ cmd: 'look.palette', args: [k], label })) },
+    { cmd: 'look.langColours' },
     { label: 'Retro font', submenu: [{ cmd: 'look.font', args: ['vga'], label: 'VGA pixel font (16 / 32 px)' }, { cmd: 'look.font', args: ['modern'], label: 'Smooth modern font (any size)' }] },
     { label: 'Editor keys', submenu: [
       { cmd: 'keys.set', args: ['vim'], label: 'Vim (like the vault\'s Neovim)' }, { cmd: 'keys.set', args: ['standard'], label: 'Standard' }, { cmd: 'keys.set', args: ['emacs'], label: 'Emacs' },
@@ -174,6 +175,12 @@ function appCommands() {
   }, { needsArgs: true });
   command('lang.toggle', 'Next language (C, C++, Rust)', ['Ctrl+Shift+J'], () => runCommand('lang.set', otherLanguage()));
   command('look.palette', 'Retro colours', [], async (p) => { cfg = await saveCfg({ look: { ...cfg.look, palette: p } }); setTheme(themeName()); toast(`Retro colours: ${PALETTES[p]}`, 'ok', 2000); }, { needsArgs: true });
+  command('look.langColours', 'Colour by language (C light blue, C++ blue, Rust orange)', [], async () => {
+    const on = !(cfg.look || {}).langColours;
+    cfg = await saveCfg({ look: { ...cfg.look, langColours: on } });
+    setTheme(themeName());
+    toast(on ? (themeName() === 'amber' ? 'Colour by language: on (Amber CRT stays amber; other themes follow the language)' : 'Colour by language: on. C is light blue, C++ dark blue, Rust orange.') : 'Colour by language: off', 'ok', 4000);
+  });
   command('look.font', 'Retro font', [], async (f) => {
     cfg = await saveCfg({ look: { ...cfg.look, retroFont: f } });
     setTheme(themeName(), f === 'vga' ? (cfg.fontSize >= 24 ? 32 : 16) : cfg.fontSize);
@@ -288,8 +295,10 @@ async function boot() {
   const appInfo = await call('app.info');
   setHome(appInfo.home);
   setConfig(cfg);
+  setThemeLanguage(cfg.language || 'cpp');
   setLanguageConfig(cfg);
   applyTheme(cfg.theme, cfg.fontSize, cfg.look || {});
+  onLanguageChange((l) => setThemeLanguage(l));
   try { await document.fonts.load(`16px "Kernel Path VGA"`); } catch (e) { /* falls back */ }   // the VGA font, from the Kernel Path vault
 
   const root = document.getElementById('app');
